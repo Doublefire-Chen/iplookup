@@ -19,6 +19,7 @@ use serde::Serialize;
 use tower::ServiceExt;
 use tower_http::services::ServeDir;
 
+use crate::config::Hosts;
 use crate::record::Record;
 
 /// The `id` of the embedded data block, read by `web/src/pageData.ts`.
@@ -40,35 +41,82 @@ pub fn wants_page(headers: &HeaderMap) -> bool {
 /// IPv6 hosts) without changing existing ones.
 #[derive(Debug, Default, Serialize)]
 pub struct PageData {
-    /// The Record the page shows: the visitor's own on the home page.
+    /// The Record the page shows: the visitor's own on the home page, the
+    /// looked-up address's on a Record page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record: Option<Record>,
+    /// Why the page shows no Record (an unknown path, or the rate limit).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<PageError>,
+    /// The configured hostnames (filled in by the app on every page).
+    #[serde(skip_serializing_if = "PageHosts::is_empty")]
+    pub hosts: PageHosts,
 }
 
 impl PageData {
     pub fn record(record: Record) -> Self {
         Self {
             record: Some(record),
+            ..Self::default()
         }
+    }
+
+    pub fn error(status: StatusCode, title: &str, message: &str) -> Self {
+        Self {
+            error: Some(PageError {
+                status: status.as_u16(),
+                title: title.to_owned(),
+                message: message.to_owned(),
+            }),
+            ..Self::default()
+        }
+    }
+}
+
+/// The page's HTTP status with the same title and message the JSON error
+/// would carry.
+#[derive(Debug, Serialize)]
+pub struct PageError {
+    pub status: u16,
+    pub title: String,
+    pub message: String,
+}
+
+/// `hosts.*` from the config, for the commands a page shows.
+#[derive(Debug, Default, Clone, Serialize)]
+pub struct PageHosts {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub main: Option<String>,
+}
+
+impl PageHosts {
+    fn is_empty(&self) -> bool {
+        self.main.is_none()
     }
 }
 
 /// The built web pages in `frontend.dir`.
 pub struct Frontend {
     dir: PathBuf,
+    hosts: PageHosts,
 }
 
 impl Frontend {
-    pub fn new(dir: &Path) -> Self {
+    pub fn new(dir: &Path, hosts: &Hosts) -> Self {
         Self {
             dir: dir.to_owned(),
+            hosts: PageHosts {
+                main: hosts.main.clone(),
+            },
         }
     }
 
-    /// `index.html` with `data` embedded, sent with `status`. It is read on
-    /// every request, so a new build is picked up without a restart; the
-    /// response is never cached (it holds the visitor's Record).
-    pub async fn page(&self, status: StatusCode, data: &PageData) -> Response {
+    /// `index.html` with `data` (plus the configured hosts) embedded, sent
+    /// with `status`. It is read on every request, so a new build is picked
+    /// up without a restart; the response is never cached (it holds a
+    /// Record).
+    pub async fn page(&self, status: StatusCode, mut data: PageData) -> Response {
+        data.hosts = self.hosts.clone();
         let path = self.dir.join("index.html");
         let html = match tokio::fs::read_to_string(&path).await {
             Ok(html) => html,
@@ -97,7 +145,7 @@ impl Frontend {
                 ),
                 (header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
             ],
-            inject(&html, data),
+            inject(&html, &data),
         )
             .into_response()
     }

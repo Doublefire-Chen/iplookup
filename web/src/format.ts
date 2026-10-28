@@ -61,3 +61,13 @@ export function recordRows(record: IpRecord): Row[] {
     .filter((r): r is [string, string] => r[1] !== undefined && r[1] !== "")
     .map(([label, value]) => ({ label, value }));
 }
+
+/** "curl https://ip.example.com/8.8.8.8": the API call for an address's Record. */
+export function curlCommand(host: string, ip: string): string {
+  return `curl https://${host}/${ip}`;
+}
+
+/** A Record as the API prints it: two-space indented JSON. */
+export function recordJson(record: IpRecord): string {
+  return JSON.stringify(record, null, 2);
+}

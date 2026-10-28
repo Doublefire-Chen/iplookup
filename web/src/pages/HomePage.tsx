@@ -1,17 +1,16 @@
 import { useEffect, useState } from "react";
 import { RecordCard } from "../components/RecordCard";
-import { readPageData } from "../pageData";
+import { SearchBox } from "../components/SearchBox";
+import { injectedFor, mainHost } from "../injected";
 import type { IpRecord } from "../record";
-
-// Read once: it describes the request that loaded this page.
-const injected = readPageData().record;
 
 /** The Self Lookup, rendered straight from the Record the server injected. */
 export function HomePage() {
-  const [record, setRecord] = useState<IpRecord | undefined>(injected);
+  const [record, setRecord] = useState<IpRecord | undefined>(() => injectedFor("/").record);
   const [failed, setFailed] = useState(false);
 
-  // Only without an injected Record (`pnpm dev`): ask the server instead.
+  // Without an injected Record (`pnpm dev`, or after a client-side move from
+  // another page): ask the server instead.
   useEffect(() => {
     if (record) return;
     fetch("/json")
@@ -21,6 +20,7 @@ export function HomePage() {
 
   return (
     <>
+      <SearchBox />
       {record ? (
         <RecordCard title="Your IP address" record={record} />
       ) : (
@@ -29,7 +29,7 @@ export function HomePage() {
         </section>
       )}
       <p className="hint muted">
-        From a terminal: <code>curl {window.location.host}</code>
+        From a terminal: <code>curl {mainHost()}</code>
       </p>
     </>
   );

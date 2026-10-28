@@ -6,6 +6,10 @@
 //! trusted_proxies = ["127.0.0.1", "::1"]
 //! log_level = "info"
 //!
+//! [hosts]
+//! # The public hostname, used in the commands the web pages show.
+//! main = "ip.example.com"
+//!
 //! [data]
 //! dir = "data"
 //! # How often the Data Sources are checked for new data.
@@ -93,6 +97,16 @@ pub struct Config {
     /// and the `assets/` it loads. Read on every page request, so a new
     /// build shows up without a restart.
     pub frontend_dir: PathBuf,
+    pub hosts: Hosts,
+}
+
+/// The hostnames the service is reached by.
+#[derive(Debug, Clone, Default)]
+pub struct Hosts {
+    /// The public hostname (optionally with a port), shown in the pages'
+    /// `curl` commands; `None` means the pages use the one they were
+    /// loaded from.
+    pub main: Option<String>,
 }
 
 /// The token bucket every client gets for Explicit Lookups.
@@ -163,6 +177,13 @@ struct RawConfig {
     ipinfo: Option<RawIpinfo>,
     rate_limit: Option<RawRateLimit>,
     frontend: Option<RawFrontend>,
+    hosts: Option<RawHosts>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawHosts {
+    main: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -297,6 +318,14 @@ impl Config {
                 .map(|s| parse_net("rate_limit.allow", s))
                 .collect::<anyhow::Result<_>>()?,
         };
+        let hosts = Hosts {
+            main: raw
+                .hosts
+                .unwrap_or_default()
+                .main
+                .map(|h| parse_host("hosts.main", h))
+                .transpose()?,
+        };
         let frontend_dir = raw.frontend.unwrap_or_default().dir.unwrap_or("web".into());
         Ok(Self {
             listen: raw
@@ -312,6 +341,7 @@ impl Config {
             ipinfo,
             rate_limit,
             frontend_dir: base.join(frontend_dir),
+            hosts,
         })
     }
 }
@@ -323,6 +353,19 @@ fn parse_net(key: &str, s: &str) -> anyhow::Result<IpNet> {
     }
     s.parse::<IpNet>()
         .map_err(|_| anyhow::anyhow!("{key}: {s:?} is not an IP address or CIDR (e.g. 10.0.0.0/8)"))
+}
+
+/// A bare hostname, optionally with a port (`ip.example.com`,
+/// `localhost:18310`): no scheme, path or user.
+fn parse_host(key: &str, host: String) -> anyhow::Result<String> {
+    let valid = !host.is_empty()
+        && !host.contains(['/', '@', '?', '#'])
+        && host.parse::<axum::http::uri::Authority>().is_ok();
+    anyhow::ensure!(
+        valid,
+        "{key}: {host:?} is not a hostname (e.g. \"ip.example.com\", without https://)"
+    );
+    Ok(host)
 }
 
 /// Parses `ip:port`, `[ipv6]:port` or a bare IP address (port 53).
@@ -381,12 +424,13 @@ mod tests {
         assert_eq!(c.rate_limit.per_second, 1.0);
         assert!(c.rate_limit.allow.is_empty());
         assert_eq!(c.frontend_dir, Path::new("/srv/iplookup/web"));
+        assert_eq!(c.hosts.main, None);
     }
 
     #[test]
     fn every_key_is_read() {
         let c = Config::parse(
-            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n[frontend]\ndir = \"/opt/iplookup/web\"\n",
+            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n[frontend]\ndir = \"/opt/iplookup/web\"\n[hosts]\nmain = \"ip.example.com\"\n",
             Path::new("/etc/iplookup"),
         )
         .unwrap();
@@ -409,6 +453,7 @@ mod tests {
         let allow: Vec<String> = c.rate_limit.allow.iter().map(|n| n.to_string()).collect();
         assert_eq!(allow, ["203.0.113.7/32", "2001:db8::/32"]);
         assert_eq!(c.frontend_dir, Path::new("/opt/iplookup/web"));
+        assert_eq!(c.hosts.main.as_deref(), Some("ip.example.com"));
     }
 
     #[test]
@@ -486,6 +531,11 @@ mod tests {
             "[rate_limit]\nallow = [\"office\"]",
             "[rate_limit]\nalow = []",
             "[frontend]\ndri = \"web\"",
+            "[hosts]\nmain = \"\"",
+            "[hosts]\nmain = \"https://ip.example.com\"",
+            "[hosts]\nmain = \"ip.example.com/\"",
+            "[hosts]\nmain = \"ip example.com\"",
+            "[hosts]\nmian = \"ip.example.com\"",
         ] {
             assert!(Config::parse(bad, Path::new("/")).is_err(), "{bad}");
         }
@@ -499,5 +549,6 @@ mod tests {
         )
         .unwrap();
         assert!(c.listen.ip().is_loopback());
+        assert_eq!(c.hosts.main.as_deref(), Some("ip.aka.cy"));
     }
 }

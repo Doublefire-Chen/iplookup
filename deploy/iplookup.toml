@@ -14,6 +14,12 @@ trusted_proxies = ["127.0.0.1", "::1"]
 # error, warn, info or debug (one line per request). RUST_LOG overrides it.
 log_level = "info"
 
+[hosts]
+# The public hostname. The web pages show it in their ready-to-copy curl
+# commands (https://{main}/…); unset, they use the hostname they were
+# loaded from.
+main = "ip.aka.cy"
+
 [data]
 # Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb (missing files are
 # downloaded before the app starts listening) and their .state files.

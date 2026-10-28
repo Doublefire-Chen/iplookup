@@ -273,3 +273,121 @@ async fn without_x_forwarded_proto_nothing_is_redirected() {
     assert_eq!(res.header("strict-transport-security"), None);
     assert_eq!(res.page_data()["record"]["ip"], "8.8.8.8");
 }
+
+#[tokio::test]
+async fn a_browser_gets_the_record_page_of_an_address() {
+    let (app, _web) = app("[hosts]\nmain = \"ip.example.com\"\n");
+    let res = app.get("/8.8.8.8").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::OK);
+    assert_eq!(res.header("cache-control"), Some("no-store"));
+    assert_eq!(res.header("vary"), Some("Accept"));
+    assert_eq!(res.header("access-control-allow-origin"), None);
+    let data = res.page_data();
+    assert_eq!(data["record"]["ip"], "8.8.8.8");
+    assert_eq!(data["record"]["hostname"], "dns.google");
+    assert_eq!(data["record"]["org"], "AS15169 Google LLC");
+    assert_eq!(data["hosts"], json!({"main": "ip.example.com"}));
+    assert_eq!(data.get("error"), None);
+
+    // The same URL is still JSON for curl.
+    let res = app.get("/8.8.8.8").send().await;
+    assert_eq!(res.json()["ip"], "8.8.8.8");
+    assert_eq!(res.header("vary"), Some("Accept"));
+}
+
+#[tokio::test]
+async fn the_record_page_echoes_the_address_and_shows_bogons() {
+    let (app, _web) = app("");
+    let res = app
+        .get("/::ffff:8.8.8.8")
+        .header("accept", BROWSER)
+        .send()
+        .await;
+    let data = res.page_data();
+    assert_eq!(data["record"]["ip"], "::ffff:8.8.8.8");
+    assert_eq!(data["record"]["org"], "AS15169 Google LLC");
+
+    let res = app.get("/10.0.0.1").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::OK);
+    assert_eq!(
+        res.page_data(),
+        json!({"record": {"ip": "10.0.0.1", "bogon": true}})
+    );
+}
+
+#[tokio::test]
+async fn every_page_carries_the_main_host() {
+    let (app, _web) = app("[hosts]\nmain = \"ip.example.com\"\n");
+    for uri in ["/", "/8.8.8.8", "/hello"] {
+        let res = app.get(uri).header("accept", BROWSER).send().await;
+        assert_eq!(res.page_data()["hosts"]["main"], "ip.example.com", "{uri}");
+    }
+}
+
+#[tokio::test]
+async fn a_browser_gets_a_404_page_for_invalid_input_and_unknown_paths() {
+    let (app, _web) = app("");
+    for uri in [
+        "/hello",
+        "/8.8.8.08",
+        "/google.com",
+        "/8.8.8.8/hello",
+        "/hello/json",
+        "/a/b/c",
+    ] {
+        let res = app.get(uri).header("accept", BROWSER).send().await;
+        assert_eq!(res.status, StatusCode::NOT_FOUND, "{uri}");
+        assert_eq!(res.header("vary"), Some("Accept"), "{uri}");
+        assert_eq!(
+            res.page_data(),
+            json!({"error": {
+                "status": 404,
+                "title": "Wrong ip",
+                "message": "Please provide a valid IP address",
+            }}),
+            "{uri}"
+        );
+
+        // Anything else still gets ipinfo's JSON error.
+        let res = app.get(uri).send().await;
+        assert_eq!(res.status, StatusCode::NOT_FOUND, "{uri}");
+        assert_eq!(res.json()["error"]["title"], "Wrong ip", "{uri}");
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn record_pages_count_against_the_rate_limit() {
+    let (app, _web) = app("[rate_limit]\nburst = 2\n");
+    let res = app.get("/8.8.8.8").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::OK);
+    let res = app.get("/8.8.8.8").send().await;
+    assert_eq!(res.status, StatusCode::OK);
+
+    // A browser gets a page saying so, with the same status and Retry-After.
+    let res = app.get("/1.1.1.1").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(res.header("retry-after"), Some("1"));
+    assert_eq!(res.header("vary"), Some("Accept"));
+    assert_eq!(res.header("cache-control"), Some("no-store"));
+    let data = res.page_data();
+    assert_eq!(data["error"]["status"], 429);
+    assert_eq!(data["error"]["title"], "Rate limit exceeded");
+    assert_eq!(
+        data["error"]["message"],
+        "Too many lookups of other addresses. Please retry after 1 second."
+    );
+    assert_eq!(data.get("record"), None);
+
+    // curl still gets JSON.
+    let res = app.get("/1.1.1.1").send().await;
+    assert_eq!(res.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(res.json()["error"]["title"], "Rate limit exceeded");
+
+    // The home page (a Self Lookup) is never limited.
+    let res = app.get("/").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::OK);
+
+    tokio::time::advance(Duration::from_secs(1)).await;
+    let res = app.get("/1.1.1.1").header("accept", BROWSER).send().await;
+    assert_eq!(res.status, StatusCode::OK);
+}

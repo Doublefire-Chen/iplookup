@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readPageData } from "./pageData";
+import { pageDataFor, readPageData } from "./pageData";
 
 /** A stand-in for `document` holding one element's text. */
 function doc(text: string | undefined): Document {
@@ -20,5 +20,18 @@ describe("readPageData", () => {
     expect(readPageData(doc(undefined))).toEqual({});
     expect(readPageData(doc("not json"))).toEqual({});
     expect(readPageData(doc("null"))).toEqual({});
+  });
+});
+
+describe("pageDataFor", () => {
+  const data = { record: { ip: "8.8.8.8" }, hosts: { main: "ip.example.com" } };
+
+  it("is the injected data on the path it was injected for", () => {
+    expect(pageDataFor(data, "/8.8.8.8", "/8.8.8.8")).toBe(data);
+  });
+
+  it("is nothing after a client-side move to another path", () => {
+    expect(pageDataFor(data, "/8.8.8.8", "/")).toEqual({});
+    expect(pageDataFor(data, "/8.8.8.8", "/1.1.1.1")).toEqual({});
   });
 });

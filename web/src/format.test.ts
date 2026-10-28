@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  curlCommand,
   formatCoordinates,
   formatKm,
   formatLocation,
   formatNetwork,
   ipVersion,
+  recordJson,
   recordRows,
 } from "./format";
 import type { IpRecord } from "./record";
@@ -106,5 +108,25 @@ describe("recordRows", () => {
       { label: "Network", value: "AS1 Example" },
     ]);
     expect(recordRows({ ip: "10.0.0.1", bogon: true })).toEqual([]);
+  });
+});
+
+describe("curlCommand", () => {
+  it("calls the main host over HTTPS", () => {
+    expect(curlCommand("ip.example.com", "8.8.8.8")).toBe("curl https://ip.example.com/8.8.8.8");
+    expect(curlCommand("ip.example.com", "2001:4860:4860::8888")).toBe(
+      "curl https://ip.example.com/2001:4860:4860::8888",
+    );
+    expect(curlCommand("localhost:18310", "::ffff:8.8.8.8")).toBe(
+      "curl https://localhost:18310/::ffff:8.8.8.8",
+    );
+  });
+});
+
+describe("recordJson", () => {
+  it("keeps the Record's key order, indented by two", () => {
+    expect(recordJson({ ip: "10.0.0.1", bogon: true })).toBe(
+      '{\n  "ip": "10.0.0.1",\n  "bogon": true\n}',
+    );
   });
 });

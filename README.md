@@ -29,8 +29,20 @@ A Field with no value returns 404 with an empty body.
 ## Web page
 
 A browser (any request whose `Accept` header contains `text/html`) gets a web
-page for `/` instead of JSON, showing the same Record. `/json`, `/{ip}/json`
-and the Field paths always return JSON or plain text, even in a browser.
+page instead of JSON: `/` shows your own Record, `/{ip}` that address's
+Record as a table, with the raw JSON and a ready-to-copy
+`curl https://{hosts.main}/{ip}` command. Both pages have a search box.
+Invalid addresses and unknown paths get a 404 page (curl still gets the
+"Wrong ip" JSON), and a rate-limited `/{ip}` gets a 429 page with the same
+`Retry-After`. `/json`, `/{ip}/json` and the Field paths always return JSON
+or plain text, even in a browser.
+
+Set the public hostname the pages show in their commands:
+
+```toml
+[hosts]
+main = "ip.example.com"   # no scheme; unset, pages use the host they came from
+```
 
 Plain HTTP is answered directly, so `curl ip.aka.cy` works without
 `https://` or `-L`; only browsers are redirected (`301`) to the same URL on
@@ -43,8 +55,8 @@ HSTS.
 ## Rate limits
 
 Looking up your own address (`/`, `/json`, `/{field}`) is never limited.
-Looking up other addresses (`/{ip}`, `/{ip}/json`, `/{ip}/{field}`) is
-limited per client, where a client is an IPv4 address or an IPv6 /64: by
+Looking up other addresses (`/{ip}`, `/{ip}/json`, `/{ip}/{field}`, and
+the `/{ip}` web page) is limited per client, where a client is an IPv4 address or an IPv6 /64: by
 default 60 in a row, then 1 more per second. Over the limit you get `429`
 with a `Retry-After` header (in seconds) and
 
@@ -114,8 +126,8 @@ cd server && cargo run -- --config iplookup.toml serve   # listens on 127.0.0.1:
 cd web && pnpm dev                                       # http://localhost:5173
 ```
 
-`pnpm dev` serves the pages itself and proxies `/json` to the server; the
-pages then have no injected Record and fetch it instead. To check the real
+`pnpm dev` serves the pages itself and proxies `/json` and `/{ip}/json` to
+the server; the pages then have no injected Record and fetch it instead. To check the real
 thing, `pnpm build` and point `[frontend] dir` at `../web/dist`.
 
 The real-data tests read both databases from `server/testdata/`, which is

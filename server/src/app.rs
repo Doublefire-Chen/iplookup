@@ -47,28 +47,38 @@ impl AppState {
             databases,
             reverse_dns: Arc::new(ReverseDns::new(ptr, config.dns_timeout)),
             rate_limiter: Arc::new(RateLimiter::new(&config.rate_limit)),
-            frontend: Arc::new(Frontend::new(&config.frontend_dir)),
+            frontend: Arc::new(Frontend::new(&config.frontend_dir, &config.hosts)),
         }
     }
 
     /// Spends one of the client's Explicit Lookup tokens; `Some` is the
-    /// 429 to send instead when the bucket is empty. Every Explicit Lookup
-    /// (API or page) calls this before looking anything up; Self Lookups
-    /// never do.
-    pub fn rate_limited(&self, peer: SocketAddr, headers: &HeaderMap) -> Option<Response> {
+    /// 429 to send instead when the bucket is empty: a page for a browser
+    /// (`page`), else ipinfo-style JSON, both with `Retry-After`. Every
+    /// Explicit Lookup (API or page) calls this before looking anything up;
+    /// Self Lookups never do.
+    pub async fn rate_limited(
+        &self,
+        peer: SocketAddr,
+        headers: &HeaderMap,
+        page: bool,
+    ) -> Option<Response> {
         let client = client_ip(peer, headers, &self.trusted_proxies);
-        self.rate_limiter.check(client).err().map(|wait| {
-            let secs = wait.as_secs();
-            let unit = if secs == 1 { "second" } else { "seconds" };
-            let mut res = error_response(
-                StatusCode::TOO_MANY_REQUESTS,
-                "Rate limit exceeded",
-                &format!("Too many lookups of other addresses. Please retry after {secs} {unit}."),
-            );
-            res.headers_mut()
-                .insert(header::RETRY_AFTER, HeaderValue::from(secs));
-            res
-        })
+        let secs = self.rate_limiter.check(client).err()?.as_secs();
+        let unit = if secs == 1 { "second" } else { "seconds" };
+        let status = StatusCode::TOO_MANY_REQUESTS;
+        let title = "Rate limit exceeded";
+        let message =
+            format!("Too many lookups of other addresses. Please retry after {secs} {unit}.");
+        let mut res = if page {
+            self.frontend
+                .page(status, PageData::error(status, title, &message))
+                .await
+        } else {
+            error_response(status, title, &message)
+        };
+        res.headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from(secs));
+        Some(res)
     }
 
     /// The Record of `ip`, echoed as `as_typed`.
@@ -109,15 +119,20 @@ async fn home(
     let mut response = if wants_page(&headers) {
         state
             .frontend
-            .page(StatusCode::OK, &PageData::record(record))
+            .page(StatusCode::OK, PageData::record(record))
             .await
     } else {
         json_response(record.to_json())
     };
+    vary_accept(&mut response);
+    response
+}
+
+/// Marks a response whose form (page or data) followed `Accept`.
+fn vary_accept(response: &mut Response) {
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("Accept"));
-    response
 }
 
 /// `/json`: a Self Lookup as JSON, whatever the `Accept` header.
@@ -135,7 +150,7 @@ async fn asset(State(state): State<AppState>, request: Request) -> Response {
 }
 
 /// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup,
-/// rate-limited).
+/// rate-limited): the Record page for a browser, JSON for anything else.
 async fn one_segment(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -146,12 +161,25 @@ async fn one_segment(
         return field_response(self_record(&state, peer, &headers).await.field(field));
     }
     let Some(ip) = parse_ip(&segment) else {
-        return wrong_ip().await;
+        return wrong_ip(State(state), headers).await;
     };
-    if let Some(limited) = state.rate_limited(peer, &headers) {
-        return limited;
-    }
-    json_response(state.lookup(&segment, ip).await.to_json())
+    let page = wants_page(&headers);
+    let mut response = match state.rate_limited(peer, &headers, page).await {
+        Some(limited) => limited,
+        None => {
+            let record = state.lookup(&segment, ip).await;
+            if page {
+                state
+                    .frontend
+                    .page(StatusCode::OK, PageData::record(record))
+                    .await
+            } else {
+                json_response(record.to_json())
+            }
+        }
+    };
+    vary_accept(&mut response);
+    response
 }
 
 /// `/{ip}/json` or `/{ip}/{field}`: an Explicit Lookup as JSON, or one of
@@ -163,16 +191,16 @@ async fn two_segments(
     Path((as_typed, suffix)): Path<(String, String)>,
 ) -> Response {
     let Some(ip) = parse_ip(&as_typed) else {
-        return wrong_ip().await;
+        return wrong_ip(State(state), headers).await;
     };
     let field = match suffix.as_str() {
         "json" => None,
         _ => match Field::parse(&suffix) {
             Some(field) => Some(field),
-            None => return wrong_ip().await,
+            None => return wrong_ip(State(state), headers).await,
         },
     };
-    if let Some(limited) = state.rate_limited(peer, &headers) {
+    if let Some(limited) = state.rate_limited(peer, &headers, false).await {
         return limited;
     }
     let record = state.lookup(&as_typed, ip).await;
@@ -188,13 +216,21 @@ async fn self_record(state: &AppState, peer: SocketAddr, headers: &HeaderMap) ->
     state.lookup(&ip.to_string(), ip).await
 }
 
-/// ipinfo.io's 404 for anything that isn't a route or an IP address.
-async fn wrong_ip() -> Response {
-    error_response(
-        StatusCode::NOT_FOUND,
-        "Wrong ip",
-        "Please provide a valid IP address",
-    )
+/// ipinfo.io's 404 for anything that isn't a route or an IP address; a
+/// browser gets the 404 page instead.
+async fn wrong_ip(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let status = StatusCode::NOT_FOUND;
+    let (title, message) = ("Wrong ip", "Please provide a valid IP address");
+    let mut response = if wants_page(&headers) {
+        state
+            .frontend
+            .page(status, PageData::error(status, title, message))
+            .await
+    } else {
+        error_response(status, title, message)
+    };
+    vary_accept(&mut response);
+    response
 }
 
 /// An ipinfo-style error: `{"status": …, "error": {"title", "message"}}`.
