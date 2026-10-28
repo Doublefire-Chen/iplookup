@@ -19,8 +19,8 @@ use ipnet::IpNet;
 use crate::client::client_ip;
 use crate::config::Config;
 use crate::databases::DatabaseReader;
-use crate::lookup::{explicit_lookup, parse_ip};
-use crate::record::Record;
+use crate::lookup::{lookup, parse_ip};
+use crate::record::{Field, Record};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,14 +38,15 @@ impl AppState {
 }
 
 /// Routes are matched in order: reserved names (static routes such as
-/// `/json`, which axum always prefers over `/{ip}`), then the path parsed as
-/// an IP address, then the "Wrong ip" 404.
+/// `/json`, which axum always prefers over `/{ip}`, and the Field names,
+/// checked first in [`one_segment`]), then the path parsed as an IP
+/// address, then the "Wrong ip" 404.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(self_lookup))
         .route("/json", get(self_lookup))
-        .route("/{ip}", get(explicit))
-        .route("/{ip}/json", get(explicit))
+        .route("/{ip}", get(one_segment))
+        .route("/{ip}/{field}", get(two_segments))
         .fallback(wrong_ip)
         .layer(middleware::from_fn(log_request))
         .with_state(state)
@@ -57,17 +58,47 @@ async fn self_lookup(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
-    let ip = client_ip(peer, &headers, &state.trusted_proxies);
-    let record = Record::new(ip.to_string(), state.databases.lookup(ip));
-    json_response(record.to_json())
+    json_response(self_record(&state, peer, &headers).to_json())
 }
 
-/// An Explicit Lookup: the Record of the address in the path, as JSON.
-async fn explicit(State(state): State<AppState>, Path(as_typed): Path<String>) -> Response {
-    match parse_ip(&as_typed) {
-        Some(ip) => json_response(explicit_lookup(&*state.databases, &as_typed, ip).to_json()),
+/// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup).
+async fn one_segment(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(segment): Path<String>,
+) -> Response {
+    if let Some(field) = Field::parse(&segment) {
+        return field_response(self_record(&state, peer, &headers).field(field));
+    }
+    match parse_ip(&segment) {
+        Some(ip) => json_response(lookup(&*state.databases, &segment, ip).to_json()),
         None => wrong_ip().await,
     }
+}
+
+/// `/{ip}/json` or `/{ip}/{field}`: an Explicit Lookup as JSON, or one of
+/// its Fields as plain text.
+async fn two_segments(
+    State(state): State<AppState>,
+    Path((as_typed, suffix)): Path<(String, String)>,
+) -> Response {
+    let Some(ip) = parse_ip(&as_typed) else {
+        return wrong_ip().await;
+    };
+    if suffix == "json" {
+        return json_response(lookup(&*state.databases, &as_typed, ip).to_json());
+    }
+    match Field::parse(&suffix) {
+        Some(field) => field_response(lookup(&*state.databases, &as_typed, ip).field(field)),
+        None => wrong_ip().await,
+    }
+}
+
+/// The Record of the client's address (a Bogon's Record for a Bogon).
+fn self_record(state: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Record {
+    let ip = client_ip(peer, headers, &state.trusted_proxies);
+    lookup(&*state.databases, &ip.to_string(), ip)
 }
 
 /// ipinfo.io's 404 for anything that isn't a route or an IP address.
@@ -100,16 +131,45 @@ pub fn error_response(status: StatusCode, title: &str, message: &str) -> Respons
     (status, json_response(body)).into_response()
 }
 
+/// A JSON response (CORS-enabled, like ipinfo.io).
 pub fn json_response(body: String) -> Response {
     (
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("application/json; charset=utf-8"),
-        )],
+        [
+            (
+                header::CONTENT_TYPE,
+                HeaderValue::from_static("application/json; charset=utf-8"),
+            ),
+            ANY_ORIGIN,
+        ],
         body,
     )
         .into_response()
 }
+
+/// A Field as plain text plus a newline, whatever the `Accept` header; a
+/// Field with no value is a 404 with an empty body (ADR 0001).
+fn field_response(value: Option<&str>) -> Response {
+    match value {
+        Some(value) => (
+            [
+                (
+                    header::CONTENT_TYPE,
+                    HeaderValue::from_static("text/plain; charset=utf-8"),
+                ),
+                ANY_ORIGIN,
+            ],
+            format!("{value}\n"),
+        )
+            .into_response(),
+        None => (StatusCode::NOT_FOUND, [ANY_ORIGIN]).into_response(),
+    }
+}
+
+/// `Access-Control-Allow-Origin: *`, on every JSON and plain-text response.
+const ANY_ORIGIN: (header::HeaderName, HeaderValue) = (
+    header::ACCESS_CONTROL_ALLOW_ORIGIN,
+    HeaderValue::from_static("*"),
+);
 
 /// Logs one line per request at debug level.
 async fn log_request(request: Request, next: Next) -> Response {

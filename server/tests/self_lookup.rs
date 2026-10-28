@@ -91,7 +91,7 @@ async fn an_unknown_address_gets_only_ip_and_readme() {
     let app = TestApp::new(FakeDatabases::new());
     let res = app.get("/json").send().await;
     assert_eq!(res.status, StatusCode::OK);
-    assert_eq!(res.json(), json!({"ip": "203.0.113.7", "readme": README}));
+    assert_eq!(res.json(), json!({"ip": "9.9.9.9", "readme": README}));
     assert!(res.text().ends_with('\n'));
 }
 
@@ -107,13 +107,13 @@ async fn org_without_a_name_is_just_the_asn_and_no_asn_means_no_org() {
     };
     let app = TestApp::new(
         FakeDatabases::new()
-            .with("192.0.2.1", network(Some("AS64500"), None))
-            .with("192.0.2.2", network(None, Some("Nameless Networks"))),
+            .with("45.0.0.1", network(Some("AS64500"), None))
+            .with("45.0.0.2", network(None, Some("Nameless Networks"))),
     );
-    let res = app.get("/").from("192.0.2.1:1").send().await.json();
+    let res = app.get("/").from("45.0.0.1:1").send().await.json();
     assert_eq!(res["org"], "AS64500");
     assert_eq!(res["asn"], json!({"asn": "AS64500"}));
-    let res = app.get("/").from("192.0.2.2:1").send().await.json();
+    let res = app.get("/").from("45.0.0.2:1").send().await.json();
     assert!(res.get("org").is_none(), "{res}");
     assert_eq!(res["asn"], json!({"name": "Nameless Networks"}));
 }
@@ -171,7 +171,7 @@ async fn x_real_ip_is_ignored_from_untrusted_peers() {
         .header("x-real-ip", "8.8.8.8")
         .send()
         .await;
-    assert_eq!(res.json(), json!({"ip": "127.0.0.1", "readme": README}));
+    assert_eq!(res.json(), json!({"ip": "127.0.0.1", "bogon": true}));
 
     // Trusting one proxy doesn't make other peers trusted.
     let app = TestApp::with_config(
@@ -180,11 +180,11 @@ async fn x_real_ip_is_ignored_from_untrusted_peers() {
     );
     let res = app
         .get("/json")
-        .from("192.0.2.9:4000")
+        .from("9.9.9.9:4000")
         .header("x-real-ip", "8.8.8.8")
         .send()
         .await;
-    assert_eq!(res.json()["ip"], "192.0.2.9");
+    assert_eq!(res.json(), json!({"ip": "9.9.9.9", "readme": README}));
 }
 
 #[tokio::test]
@@ -227,7 +227,7 @@ async fn x_real_ip_is_used_from_trusted_proxies() {
 async fn a_trusted_proxy_without_a_valid_x_real_ip_is_the_client() {
     let app = TestApp::with_config(FakeDatabases::new(), "trusted_proxies = [\"127.0.0.1\"]");
     let res = app.get("/json").from("127.0.0.1:4000").send().await;
-    assert_eq!(res.json()["ip"], "127.0.0.1");
+    assert_eq!(res.json(), json!({"ip": "127.0.0.1", "bogon": true}));
     let res = app
         .get("/json")
         .from("127.0.0.1:4000")
@@ -235,4 +235,29 @@ async fn a_trusted_proxy_without_a_valid_x_real_ip_is_the_client() {
         .send()
         .await;
     assert_eq!(res.json()["ip"], "127.0.0.1");
+}
+
+#[tokio::test]
+async fn a_bogon_client_gets_a_bogons_record_without_a_lookup() {
+    let fake = FakeDatabases::new().with("10.1.2.3", google());
+    let lookups = fake.lookups();
+    let app = TestApp::with_config(fake, "trusted_proxies = [\"127.0.0.1\"]");
+    for (peer, real_ip, ip) in [
+        ("10.1.2.3:4000", None, "10.1.2.3"),
+        ("[fd00::1]:4000", None, "fd00::1"),
+        ("[::ffff:192.168.1.1]:4000", None, "192.168.1.1"),
+        ("127.0.0.1:4000", Some("100.64.0.1"), "100.64.0.1"),
+    ] {
+        for path in ["/", "/json"] {
+            let mut req = app.get(path).from(peer);
+            if let Some(real_ip) = real_ip {
+                req = req.header("x-real-ip", real_ip);
+            }
+            let res = req.send().await;
+            assert_eq!(res.status, StatusCode::OK, "{peer} {path}");
+            assert_eq!(res.json(), json!({"ip": ip, "bogon": true}), "{peer}");
+            assert_eq!(res.keys(), ["ip", "bogon"]);
+        }
+    }
+    assert!(lookups.lock().unwrap().is_empty());
 }

@@ -58,7 +58,55 @@ pub struct Asn {
     pub domain: Option<String>,
 }
 
+/// One of ipinfo's nine Fields, served on its own as plain text. The
+/// extras (`country_name`, `asn` …) are JSON-only and not Fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Field {
+    Ip,
+    Hostname,
+    City,
+    Region,
+    Country,
+    Loc,
+    Org,
+    Postal,
+    Timezone,
+}
+
+impl Field {
+    /// The Field named `name` in a path, such as `city` in `/city`.
+    pub fn parse(name: &str) -> Option<Self> {
+        Some(match name {
+            "ip" => Self::Ip,
+            "hostname" => Self::Hostname,
+            "city" => Self::City,
+            "region" => Self::Region,
+            "country" => Self::Country,
+            "loc" => Self::Loc,
+            "org" => Self::Org,
+            "postal" => Self::Postal,
+            "timezone" => Self::Timezone,
+            _ => return None,
+        })
+    }
+}
+
 impl Record {
+    /// The value of `field`, or `None` when the Record has none.
+    pub fn field(&self, field: Field) -> Option<&str> {
+        match field {
+            Field::Ip => Some(&self.ip),
+            Field::Hostname => self.hostname.as_deref(),
+            Field::City => self.city.as_deref(),
+            Field::Region => self.region.as_deref(),
+            Field::Country => self.country.as_deref(),
+            Field::Loc => self.loc.as_deref(),
+            Field::Org => self.org.as_deref(),
+            Field::Postal => self.postal.as_deref(),
+            Field::Timezone => self.timezone.as_deref(),
+        }
+    }
+
     /// A Record for `ip` (as requested) from what the Data Sources know.
     pub fn new(ip: String, data: IpData) -> Self {
         let location = data.location.unwrap_or_default();

@@ -14,6 +14,18 @@ $ curl ip.aka.cy
 }
 ```
 
+Single Fields (`ip`, `hostname`, `city`, `region`, `country`, `loc`, `org`,
+`postal`, `timezone`) come back as plain text, for yours or any address:
+
+```console
+$ curl ip.aka.cy/ip
+8.8.8.8
+$ curl ip.aka.cy/1.1.1.1/org
+AS13335 Cloudflare, Inc.
+```
+
+A Field with no value returns 404 with an empty body.
+
 Work in progress: the full API documentation comes with later releases.
 
 ## Layout

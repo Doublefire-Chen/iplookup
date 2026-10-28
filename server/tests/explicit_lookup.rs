@@ -181,14 +181,16 @@ async fn reserved_names_are_never_treated_as_addresses() {
     ];
     for name in reserved {
         let res = app.get(&format!("/{name}")).send().await;
-        if res.status == StatusCode::OK {
-            assert_ne!(res.json()["ip"], name);
-        }
-        assert!(res.json().get("bogon").is_none(), "/{name}: {}", res.text());
+        assert_ne!(res.text().trim_end(), name, "/{name}");
+        assert!(
+            !res.text().contains(&format!(r#""ip": "{name}""#)),
+            "/{name}"
+        );
+        assert!(!res.text().contains("bogon"), "/{name}: {}", res.text());
     }
-    // Only `/json` (the Self Lookup) has looked anything up.
-    assert_eq!(
-        *lookups.lock().unwrap(),
-        ["203.0.113.7".parse::<std::net::IpAddr>().unwrap()]
-    );
+    // Only Self Lookups (`/json` and the Fields) have looked anything up.
+    let peer: std::net::IpAddr = "9.9.9.9".parse().unwrap();
+    let lookups = lookups.lock().unwrap();
+    assert_eq!(lookups.len(), 10, "{lookups:?}");
+    assert!(lookups.iter().all(|ip| *ip == peer), "{lookups:?}");
 }

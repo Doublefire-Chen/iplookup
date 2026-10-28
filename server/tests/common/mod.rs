@@ -33,8 +33,9 @@ use iplookup::databases::{
 use serde_json::Value;
 use tower::ServiceExt;
 
-/// The peer of every request that doesn't set one.
-pub const DEFAULT_PEER: &str = "203.0.113.7:50000";
+/// The peer of every request that doesn't set one: a public address the
+/// fakes know nothing about (Quad9's DNS).
+pub const DEFAULT_PEER: &str = "9.9.9.9:50000";
 
 /// A [`DatabaseReader`] that knows only the addresses it is given, and
 /// logs every address it is asked about (see [`FakeDatabases::lookups`]).
