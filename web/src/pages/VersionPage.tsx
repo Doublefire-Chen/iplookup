@@ -91,9 +91,7 @@ function VersionDetails({ info }: { info: VersionInfo }) {
                   <>
                     <div className="record-row">
                       <dt>Database</dt>
-                      <dd>
-                        <code>{state.source}</code>
-                      </dd>
+                      <dd>{state.source}</dd>
                     </div>
                     <div className="record-row">
                       <dt>Built</dt>

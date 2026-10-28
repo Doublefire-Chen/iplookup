@@ -91,20 +91,11 @@ async fn version_reports_both_real_data_sources() {
     let res = app.get("/version").send().await;
     assert_eq!(res.status, axum::http::StatusCode::OK);
     let data = &res.json()["data"];
-    assert!(
-        data["location"]["source"]
-            .as_str()
-            .unwrap()
-            .contains("City"),
+    assert_eq!(
+        data["location"]["source"], "MaxMind GeoLite2 City",
         "{data}"
     );
-    assert!(
-        data["network"]["source"]
-            .as_str()
-            .unwrap()
-            .starts_with("ipinfo"),
-        "{data}"
-    );
+    assert_eq!(data["network"]["source"], "IPinfo Lite", "{data}");
     for source in ["location", "network"] {
         let build = data[source]["build"].as_str().unwrap();
         assert!(humantime::parse_rfc3339(build).is_ok(), "{build}");

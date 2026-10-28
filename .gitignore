@@ -33,3 +33,6 @@ server/testdata/
 # Runtime data and local config
 data/
 /server/iplookup.toml
+
+# Release tarballs from scripts/package.sh
+/dist/

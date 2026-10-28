@@ -1,68 +1,96 @@
-# iplookup config for the reference deployment (ip.aka.cy). Every key is
-# optional; relative paths are resolved against this file's directory.
-# It holds credentials: keep it readable only by iplookup (chmod 0600).
+# iplookup config. Install as /etc/iplookup/config.toml (owner root, group
+# iplookup, mode 0640: it holds credentials). See deploy/README.md.
+#
+# Every key is listed with the value used by the reference deployment
+# (ip.aka.cy); "Default:" says what an absent key means. Every key is
+# optional, and unknown keys are an error. Relative paths are resolved
+# against this file's directory. Durations are like "500ms", "30s", "12h".
 
-# nginx proxies to this address.
+# The address the HTTP server listens on; nginx proxies to it.
+# Default: "127.0.0.1:18310"
 listen = "127.0.0.1:18310"
 
 # Peers whose X-Real-IP header names the client (IPs or CIDRs). Only list
-# the reverse proxy; anyone else could fake their address. Empty by default.
-# Their X-Forwarded-Proto is believed too: browsers (Accept: text/html) that
-# came over http are redirected to https, and https answers carry HSTS.
+# the reverse proxy; anyone else could fake their address. Their
+# X-Forwarded-Proto is believed too: browsers (Accept: text/html) that came
+# over http are redirected to https, and https answers carry HSTS.
+# Default: [] (no proxy trusted: the peer address is the client, and there
+# is no redirect and no HSTS).
 trusted_proxies = ["127.0.0.1", "::1"]
 
-# error, warn, info or debug (one line per request). RUST_LOG overrides it.
+# error, warn, info, debug (adds one line per request) or trace. The RUST_LOG environment variable overrides it.
+# Default: "info"
 log_level = "info"
 
 [hosts]
+# Hostnames without scheme or path (a :port is allowed).
+#
 # The public hostname. The web pages show it in their ready-to-copy curl
-# commands (https://{main}/…); unset, they use the hostname they were
-# loaded from.
+# commands (https://{main}/…).
+# Default: unset (the pages use the hostname they were loaded from).
 main = "ip.aka.cy"
-# Optional hostnames that reach this server over one protocol only: v4
-# with just an A record, v6 with just an AAAA record (both on the same
-# certificate as main). With both set, the home page shows the visitor's
-# IPv4 and IPv6 Records side by side by fetching https://{v4}/json and
-# https://{v6}/json. Unset, it shows the one Record it was loaded over.
+# Hostnames that reach this server over one protocol only: v4 with just an
+# A record, v6 with just an AAAA record (both on the same certificate as
+# main). With both set, the home page shows the visitor's IPv4 and IPv6
+# Records side by side by fetching https://{v4}/json and https://{v6}/json.
+# Default: unset (the home page shows the one Record it was loaded over).
 v4 = "v4.ip.aka.cy"
 v6 = "v6.ip.aka.cy"
 
 [data]
 # Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb (missing files are
-# downloaded before the app starts listening) and their .state files.
+# downloaded before the server starts listening) and their .state files.
+# Must be writable by the service (the systemd unit's StateDirectory).
+# Default: "data" (next to this file)
 dir = "/var/lib/iplookup"
-# How often both Data Sources are checked for new data.
+# How often both Data Sources are checked for new data. GeoLite's licence
+# asks for new releases to be used promptly; keep this at a day or less.
+# Default: "12h"
 update_interval = "12h"
 
 [maxmind]
 # GeoLite2 City (Location Data): your MaxMind account ID and licence key
-# (https://www.maxmind.com/en/accounts/current/license-key).
+# (https://www.maxmind.com/en/accounts/current/license-key). Set both or
+# neither. Default: unset (no downloads; the file must be placed by hand).
 account_id = 123456
 license_key = "YOUR_LICENSE_KEY"
+# Download server; only tests change it.
+# Default: "https://download.maxmind.com"
+# base_url = "https://download.maxmind.com"
 
 [ipinfo]
 # IPinfo Lite (Network Data): your token (https://ipinfo.io/dashboard/token).
+# Default: unset (no downloads; the file must be placed by hand).
 token = "YOUR_TOKEN"
+# Download server; only tests change it.
+# Default: "https://ipinfo.io"
+# base_url = "https://ipinfo.io"
 
 [dns]
-# Asked for reverse DNS (hostname): the local unbound. Port 53 unless given.
-# Leave unset to use the system resolver (/etc/resolv.conf).
+# Asked for reverse DNS (the hostname key): the local unbound from
+# deploy/unbound-iplookup.conf. IP or IP:port; port 53 unless given.
+# Default: unset (the system resolver from /etc/resolv.conf).
 resolver = "127.0.0.1:53"
 # A Lookup waits at most this long for a PTR name, then leaves hostname out.
+# Default: "500ms"
 timeout = "500ms"
 
 [rate_limit]
-# Explicit Lookups (/{ip}, /{ip}/json, /{ip}/{field}) per client, where a
-# client is an IPv4 address or an IPv6 /64: up to `burst` in a row, then
-# `per_second` more each second (fractions allowed). Self Lookups are never
-# limited. Over the limit: 429 with Retry-After.
+# Explicit Lookups (/{ip}, /{ip}/json, /{ip}/{field} and the /{ip} page) per
+# client, where a client is an IPv4 address or an IPv6 /64: up to `burst`
+# in a row, then `per_second` more each second (fractions allowed). Self
+# Lookups are never limited. Over the limit: 429 with Retry-After.
+# Default: 60
 burst = 60
+# Default: 1
 per_second = 1
 # Clients that are never limited (IPs or CIDRs).
+# Default: []
 allow = []
 
 [frontend]
-# The built web pages (web/dist from `pnpm build`): index.html, into which
-# the visitor's Record is injected, and assets/. Read on every page request,
-# so a new build needs no restart.
+# The built web pages (web/ in a release, web/dist from `pnpm build`):
+# index.html, into which the visitor's Record is injected, and assets/.
+# index.html is read on every page request, so a new build needs no restart.
+# Default: "web" (next to this file)
 dir = "/opt/iplookup/current/web"

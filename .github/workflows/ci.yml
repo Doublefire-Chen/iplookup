@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
     branches: [main]
 
@@ -52,3 +53,50 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
+
+  # On a v* tag: one tarball per architecture (static Linux binary, web
+  # build and deploy samples) plus SHA256SUMS, attached to a GitHub Release.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [server, web]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag matches both versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          server=$(sed -n 's/^version = "\(.*\)"/\1/p' server/Cargo.toml | head -n1)
+          web=$(node -p "require('./web/package.json').version")
+          echo "tag=$tag server=$server web=$web"
+          test "$tag" = "$server" && test "$tag" = "$web"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      # cargo-zigbuild uses zig as the C cross-compiler (ring, for rustls).
+      - run: pip install ziglang==0.16.0 cargo-zigbuild==0.24.0
+      - name: Build binaries
+        working-directory: server
+        run: >-
+          cargo zigbuild --release --locked
+          --target x86_64-unknown-linux-musl
+          --target aarch64-unknown-linux-musl
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: Build web pages
+        working-directory: web
+        run: pnpm install --frozen-lockfile && pnpm build
+      - name: Package
+        run: scripts/package.sh "$GITHUB_REF_NAME" dist
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes --verify-tag

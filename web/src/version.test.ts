@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { formatAge, formatTime, isHealthy, isVersionInfo, type VersionInfo } from "./version";
 
-const state = { source: "GeoLite2-City", build: "2026-10-28T00:00:00Z" };
+const state = { source: "MaxMind GeoLite2 City", build: "2026-10-28T00:00:00Z" };
 
 describe("isVersionInfo", () => {
   it("accepts the /version shape, healthy or not", () => {

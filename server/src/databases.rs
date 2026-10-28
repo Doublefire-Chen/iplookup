@@ -43,6 +43,14 @@ impl DataSource {
         }
     }
 
+    /// The product's human-readable name, as `/version` reports it.
+    pub fn name(self) -> &'static str {
+        match self {
+            DataSource::Location => "MaxMind GeoLite2 City",
+            DataSource::Network => "IPinfo Lite",
+        }
+    }
+
     /// Whether an mmdb `database_type` is this Data Source's.
     fn is_type(self, database_type: &str) -> bool {
         match self {

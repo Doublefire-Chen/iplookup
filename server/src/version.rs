@@ -3,8 +3,8 @@
 //!
 //! ```json
 //! {"version": "0.1.0", "data": {
-//!   "location": {"source": "GeoLite2-City", "build": "…Z", "checked": "…Z"},
-//!   "network": {"source": "ipinfo_lite", "build": "…Z", "checked": "…Z"}}}
+//!   "location": {"source": "MaxMind GeoLite2 City", "build": "…Z", "checked": "…Z"},
+//!   "network": {"source": "IPinfo Lite", "build": "…Z", "checked": "…Z"}}}
 //! ```
 //!
 //! Times are RFC 3339 in UTC. As in a Record, missing values leave their
@@ -16,7 +16,7 @@ use std::time::{Duration, UNIX_EPOCH};
 use axum::http::StatusCode;
 use serde::Serialize;
 
-use crate::databases::{DataSourceInfo, DataSourcesInfo};
+use crate::databases::{DataSource, DataSourceInfo, DataSourcesInfo};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct VersionInfo {
@@ -36,8 +36,9 @@ pub struct DataState {
 /// One loaded Data Source.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct SourceState {
-    /// The database type from the file's metadata.
-    pub source: String,
+    /// The Data Source's product name ([`DataSource::name`]), e.g.
+    /// `MaxMind GeoLite2 City`.
+    pub source: &'static str,
     /// When the loaded file was built.
     pub build: String,
     /// When upstream was last checked for new data (successfully).
@@ -47,16 +48,19 @@ pub struct SourceState {
 
 impl VersionInfo {
     pub fn new(info: &DataSourcesInfo) -> Self {
-        let state = |s: &DataSourceInfo| SourceState {
-            source: s.source.clone(),
+        let state = |source: DataSource, s: &DataSourceInfo| SourceState {
+            source: source.name(),
             build: rfc3339(s.build),
             checked: s.checked.map(rfc3339),
         };
         Self {
             version: crate::VERSION,
             data: DataState {
-                location: info.location.as_ref().map(state),
-                network: info.network.as_ref().map(state),
+                location: info
+                    .location
+                    .as_ref()
+                    .map(|s| state(DataSource::Location, s)),
+                network: info.network.as_ref().map(|s| state(DataSource::Network, s)),
             },
         }
     }
@@ -109,6 +113,8 @@ mod tests {
         assert_eq!(json["data"]["location"]["build"], "2026-10-28T00:00:00Z");
         assert_eq!(json["data"]["location"]["checked"], "2026-10-28T04:00:00Z");
         assert!(json["data"]["network"].get("checked").is_none());
+        assert_eq!(json["data"]["location"]["source"], "MaxMind GeoLite2 City");
+        assert_eq!(json["data"]["network"]["source"], "IPinfo Lite");
     }
 
     #[test]

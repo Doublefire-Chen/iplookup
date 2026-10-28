@@ -16,8 +16,8 @@ fn expected_version() -> serde_json::Value {
     json!({
         "version": env!("CARGO_PKG_VERSION"),
         "data": {
-            "location": {"source": "GeoLite2-City", "build": "2026-01-01T00:00:00Z"},
-            "network": {"source": "ipinfo_lite", "build": "2026-01-01T00:00:00Z"},
+            "location": {"source": "MaxMind GeoLite2 City", "build": "2026-01-01T00:00:00Z"},
+            "network": {"source": "IPinfo Lite", "build": "2026-01-01T00:00:00Z"},
         }
     })
 }
