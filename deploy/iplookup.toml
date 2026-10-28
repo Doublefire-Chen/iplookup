@@ -7,6 +7,8 @@ listen = "127.0.0.1:18310"
 
 # Peers whose X-Real-IP header names the client (IPs or CIDRs). Only list
 # the reverse proxy; anyone else could fake their address. Empty by default.
+# Their X-Forwarded-Proto is believed too: browsers (Accept: text/html) that
+# came over http are redirected to https, and https answers carry HSTS.
 trusted_proxies = ["127.0.0.1", "::1"]
 
 # error, warn, info or debug (one line per request). RUST_LOG overrides it.
@@ -45,3 +47,9 @@ burst = 60
 per_second = 1
 # Clients that are never limited (IPs or CIDRs).
 allow = []
+
+[frontend]
+# The built web pages (web/dist from `pnpm build`): index.html, into which
+# the visitor's Record is injected, and assets/. Read on every page request,
+# so a new build needs no restart.
+dir = "/opt/iplookup/current/web"

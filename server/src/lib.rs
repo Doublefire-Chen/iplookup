@@ -12,6 +12,7 @@ pub mod config;
 pub mod databases;
 pub mod logging;
 pub mod lookup;
+pub mod page;
 pub mod rate_limit;
 pub mod record;
 pub mod reverse_dns;

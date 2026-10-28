@@ -1,10 +1,12 @@
 /**
  * The Record (see CONTEXT.md): the answer to a Lookup, in ipinfo.io's JSON
- * shape (ADR 0001). Missing values are left out, so every item but `ip` and
- * `readme` is optional.
+ * shape (ADR 0001). Missing values are left out, so every item but `ip` is
+ * optional. A Bogon's Record is just `{ ip, bogon: true }`.
  */
 export interface IpRecord {
   ip: string;
+  /** Set only on a Bogon's Record, which carries nothing else. */
+  bogon?: true;
   hostname?: string;
   city?: string;
   region?: string;
@@ -15,7 +17,7 @@ export interface IpRecord {
   org?: string;
   postal?: string;
   timezone?: string;
-  readme: string;
+  readme?: string;
   country_name?: string;
   continent?: string;
   /** The Accuracy Radius, in kilometres. */

@@ -33,6 +33,10 @@
 //! per_second = 1
 //! # Clients never limited (IPs or CIDRs).
 //! allow = ["192.0.2.0/24"]
+//!
+//! [frontend]
+//! # The built web pages (`pnpm build` output: index.html and assets/).
+//! dir = "web"
 //! ```
 //!
 //! Every key is optional. Relative paths are resolved against the directory
@@ -85,6 +89,10 @@ pub struct Config {
     pub maxmind: MaxMind,
     pub ipinfo: Ipinfo,
     pub rate_limit: RateLimitConfig,
+    /// The built web pages: `index.html` (into which Records are injected)
+    /// and the `assets/` it loads. Read on every page request, so a new
+    /// build shows up without a restart.
+    pub frontend_dir: PathBuf,
 }
 
 /// The token bucket every client gets for Explicit Lookups.
@@ -154,6 +162,13 @@ struct RawConfig {
     maxmind: Option<RawMaxMind>,
     ipinfo: Option<RawIpinfo>,
     rate_limit: Option<RawRateLimit>,
+    frontend: Option<RawFrontend>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawFrontend {
+    dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -282,6 +297,7 @@ impl Config {
                 .map(|s| parse_net("rate_limit.allow", s))
                 .collect::<anyhow::Result<_>>()?,
         };
+        let frontend_dir = raw.frontend.unwrap_or_default().dir.unwrap_or("web".into());
         Ok(Self {
             listen: raw
                 .listen
@@ -295,6 +311,7 @@ impl Config {
             maxmind,
             ipinfo,
             rate_limit,
+            frontend_dir: base.join(frontend_dir),
         })
     }
 }
@@ -363,12 +380,13 @@ mod tests {
         assert_eq!(c.rate_limit.burst, 60);
         assert_eq!(c.rate_limit.per_second, 1.0);
         assert!(c.rate_limit.allow.is_empty());
+        assert_eq!(c.frontend_dir, Path::new("/srv/iplookup/web"));
     }
 
     #[test]
     fn every_key_is_read() {
         let c = Config::parse(
-            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n",
+            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n[frontend]\ndir = \"/opt/iplookup/web\"\n",
             Path::new("/etc/iplookup"),
         )
         .unwrap();
@@ -390,6 +408,7 @@ mod tests {
         assert_eq!(c.rate_limit.per_second, 0.5);
         let allow: Vec<String> = c.rate_limit.allow.iter().map(|n| n.to_string()).collect();
         assert_eq!(allow, ["203.0.113.7/32", "2001:db8::/32"]);
+        assert_eq!(c.frontend_dir, Path::new("/opt/iplookup/web"));
     }
 
     #[test]
@@ -466,6 +485,7 @@ mod tests {
             "[rate_limit]\nper_second = \"1/s\"",
             "[rate_limit]\nallow = [\"office\"]",
             "[rate_limit]\nalow = []",
+            "[frontend]\ndri = \"web\"",
         ] {
             assert!(Config::parse(bad, Path::new("/")).is_err(), "{bad}");
         }

@@ -22,11 +22,12 @@ tar = "0.4.46"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["full"] }
 toml = "1.1.8"
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 
 [dev-dependencies]
 http-body-util = "0.1.5"
 tokio = { version = "1.54.1", features = ["test-util"] }
-tower = { version = "0.5.3", features = ["util"] }
 wiremock = "0.6.5"

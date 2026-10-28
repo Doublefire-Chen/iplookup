@@ -10,16 +10,17 @@ use std::time::Instant;
 
 use axum::Router;
 use axum::extract::{ConnectInfo, Path, Request, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use ipnet::IpNet;
 
-use crate::client::client_ip;
+use crate::client::{Scheme, client_ip, forwarded_scheme};
 use crate::config::Config;
 use crate::databases::DatabaseReader;
 use crate::lookup::{lookup, parse_ip};
+use crate::page::{Frontend, PageData, wants_page};
 use crate::rate_limit::RateLimiter;
 use crate::record::{Field, Record};
 use crate::reverse_dns::{PtrResolver, ReverseDns};
@@ -30,6 +31,7 @@ pub struct AppState {
     pub databases: Arc<dyn DatabaseReader>,
     pub reverse_dns: Arc<ReverseDns>,
     pub rate_limiter: Arc<RateLimiter>,
+    pub frontend: Arc<Frontend>,
 }
 
 impl AppState {
@@ -45,6 +47,7 @@ impl AppState {
             databases,
             reverse_dns: Arc::new(ReverseDns::new(ptr, config.dns_timeout)),
             rate_limiter: Arc::new(RateLimiter::new(&config.rate_limit)),
+            frontend: Arc::new(Frontend::new(&config.frontend_dir)),
         }
     }
 
@@ -75,27 +78,60 @@ impl AppState {
 }
 
 /// Routes are matched in order: reserved names (static routes such as
-/// `/json`, which axum always prefers over `/{ip}`, and the Field names,
-/// checked first in [`one_segment`]), then the path parsed as an IP
-/// address, then the "Wrong ip" 404.
+/// `/json` and `/assets/…`, which axum always prefers over `/{ip}`, and the
+/// Field names, checked first in [`one_segment`]), then the path parsed as
+/// an IP address, then the "Wrong ip" 404. Every response passes through
+/// [`https_only_pages`].
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(self_lookup))
+        .route("/", get(home))
         .route("/json", get(self_lookup))
+        .route("/assets/{*path}", get(asset))
         .route("/{ip}", get(one_segment))
         .route("/{ip}/{field}", get(two_segments))
         .fallback(wrong_ip)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            https_only_pages,
+        ))
         .layer(middleware::from_fn(log_request))
         .with_state(state)
 }
 
-/// A Self Lookup: the Record of the address the request came from, as JSON.
+/// `/`: a Self Lookup, as the home page (with the Record injected) for a
+/// browser, as JSON for anything else.
+async fn home(
+    State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response {
+    let record = self_record(&state, peer, &headers).await;
+    let mut response = if wants_page(&headers) {
+        state
+            .frontend
+            .page(StatusCode::OK, &PageData::record(record))
+            .await
+    } else {
+        json_response(record.to_json())
+    };
+    response
+        .headers_mut()
+        .insert(header::VARY, HeaderValue::from_static("Accept"));
+    response
+}
+
+/// `/json`: a Self Lookup as JSON, whatever the `Accept` header.
 async fn self_lookup(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
     json_response(self_record(&state, peer, &headers).await.to_json())
+}
+
+/// A built file of the web pages (never rate-limited).
+async fn asset(State(state): State<AppState>, request: Request) -> Response {
+    state.frontend.asset(request).await
 }
 
 /// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup,
@@ -221,6 +257,59 @@ const ANY_ORIGIN: (header::HeaderName, HeaderValue) = (
     header::ACCESS_CONTROL_ALLOW_ORIGIN,
     HeaderValue::from_static("*"),
 );
+
+/// `Strict-Transport-Security` on every HTTPS response.
+const HSTS: HeaderValue = HeaderValue::from_static("max-age=31536000");
+
+/// ADR 0002: a page request (`Accept: text/html`) that reached the proxy
+/// over plain HTTP is sent to the same URL on HTTPS with a 301; every other
+/// request is answered over whichever scheme it came on, and HTTPS answers
+/// carry HSTS. The scheme is only known from a trusted proxy's
+/// `X-Forwarded-Proto` (see [`forwarded_scheme`]): with no proxy, or one
+/// that doesn't say, nothing is redirected and no HSTS is sent.
+async fn https_only_pages(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|ConnectInfo(addr)| *addr);
+    let scheme =
+        peer.and_then(|peer| forwarded_scheme(peer, request.headers(), &state.trusted_proxies));
+    match scheme {
+        Some(Scheme::Http)
+            if matches!(*request.method(), Method::GET | Method::HEAD)
+                && wants_page(request.headers()) =>
+        {
+            match https_url(request.headers(), request.uri()) {
+                Some(location) => (
+                    StatusCode::MOVED_PERMANENTLY,
+                    [(header::LOCATION, location)],
+                )
+                    .into_response(),
+                None => next.run(request).await,
+            }
+        }
+        Some(Scheme::Https) => {
+            let mut response = next.run(request).await;
+            response
+                .headers_mut()
+                .insert(header::STRICT_TRANSPORT_SECURITY, HSTS);
+            response
+        }
+        _ => next.run(request).await,
+    }
+}
+
+/// `https://` + the request's `Host` (without any port) + its path and
+/// query; `None` when there is no valid `Host`.
+fn https_url(headers: &HeaderMap, uri: &Uri) -> Option<HeaderValue> {
+    let host = headers.get(header::HOST)?.to_str().ok()?;
+    let authority: axum::http::uri::Authority = host.parse().ok()?;
+    if host.contains('@') {
+        return None;
+    }
+    let path = uri.path_and_query().map_or("/", |pq| pq.as_str());
+    HeaderValue::try_from(format!("https://{}{path}", authority.host())).ok()
+}
 
 /// Logs one line per request at debug level.
 async fn log_request(request: Request, next: Next) -> Response {

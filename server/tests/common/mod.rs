@@ -302,3 +302,41 @@ impl TestResponse {
             .collect()
     }
 }
+
+/// The `index.html` of [`frontend`]: just enough of Vite's output to find
+/// the injected data block in.
+pub const INDEX_HTML: &str = "<!doctype html>\n<html><head><title>iplookup</title><script type=\"module\" src=\"/assets/index-abc123.js\"></script></head><body><div id=\"root\"></div></body></html>\n";
+
+/// A built frontend in a temporary directory: [`INDEX_HTML`] and
+/// `assets/index-abc123.js`. Keep the directory alive while the app runs.
+pub fn frontend() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("index.html"), INDEX_HTML).unwrap();
+    std::fs::create_dir(dir.path().join("assets")).unwrap();
+    std::fs::write(
+        dir.path().join("assets/index-abc123.js"),
+        "console.log(\"iplookup\");\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// The config line pointing `frontend.dir` at `dir`.
+pub fn frontend_config(dir: &Path) -> String {
+    format!("[frontend]\ndir = {:?}\n", dir.display().to_string())
+}
+
+impl TestResponse {
+    /// The JSON block injected into a page, after checking it is one.
+    pub fn page_data(&self) -> Value {
+        assert_eq!(
+            self.header("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        let start = r#"<script id="iplookup-data" type="application/json">"#;
+        let html = self.text();
+        let json = &html[html.find(start).expect("a data block") + start.len()..];
+        let json = &json[..json.find("</script>").unwrap()];
+        serde_json::from_str(json).expect("JSON data block")
+    }
+}

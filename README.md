@@ -26,6 +26,20 @@ AS13335 Cloudflare, Inc.
 
 A Field with no value returns 404 with an empty body.
 
+## Web page
+
+A browser (any request whose `Accept` header contains `text/html`) gets a web
+page for `/` instead of JSON, showing the same Record. `/json`, `/{ip}/json`
+and the Field paths always return JSON or plain text, even in a browser.
+
+Plain HTTP is answered directly, so `curl ip.aka.cy` works without
+`https://` or `-L`; only browsers are redirected (`301`) to the same URL on
+HTTPS, and HTTPS responses carry `Strict-Transport-Security`. Scripts
+should still use `https://`. The app learns the scheme from the
+`X-Forwarded-Proto` header of a trusted proxy (`trusted_proxies`); a request
+from anyone else, or without the header, is never redirected and gets no
+HSTS.
+
 ## Rate limits
 
 Looking up your own address (`/`, `/json`, `/{field}`) is never limited.
@@ -61,7 +75,9 @@ Work in progress: the full API documentation comes with later releases.
 ## Layout
 
 - `server/`: the Rust server (axum). `iplookup --config iplookup.toml serve`.
-- `web/`: the web pages (Vite + React + TypeScript, pnpm).
+- `web/`: the web pages (Vite + React + TypeScript, pnpm). The server serves
+  the build (`pnpm build` → `web/dist`) from `[frontend] dir`, injecting the
+  Record into `index.html`.
 - `deploy/`: sample deployment files.
 
 ## Data
@@ -89,6 +105,18 @@ This product includes GeoLite Data created by MaxMind, available from
 cd server && cargo test
 cd web && pnpm install && pnpm test && pnpm build
 ```
+
+To work on the web pages, run the server (with the real-data databases,
+say) and the Vite dev server side by side:
+
+```sh
+cd server && cargo run -- --config iplookup.toml serve   # listens on 127.0.0.1:18310
+cd web && pnpm dev                                       # http://localhost:5173
+```
+
+`pnpm dev` serves the pages itself and proxies `/json` to the server; the
+pages then have no injected Record and fetch it instead. To check the real
+thing, `pnpm build` and point `[frontend] dir` at `../web/dist`.
 
 The real-data tests read both databases from `server/testdata/`, which is
 gitignored and must never be committed; fill or refresh it with
