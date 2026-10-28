@@ -25,6 +25,14 @@
 //! # when unset.
 //! resolver = "127.0.0.1:53"
 //! timeout = "500ms"
+//!
+//! [rate_limit]
+//! # Explicit Lookups per client (IPv4 address or IPv6 /64): a token
+//! # bucket holding `burst` tokens, refilled at `per_second`.
+//! burst = 60
+//! per_second = 1
+//! # Clients never limited (IPs or CIDRs).
+//! allow = ["192.0.2.0/24"]
 //! ```
 //!
 //! Every key is optional. Relative paths are resolved against the directory
@@ -53,6 +61,10 @@ pub const DEFAULT_UPDATE_INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
 pub const DEFAULT_MAXMIND_URL: &str = "https://download.maxmind.com";
 /// Where IPinfo Lite is downloaded from.
 pub const DEFAULT_IPINFO_URL: &str = "https://ipinfo.io";
+/// How many Explicit Lookups a client may make in a row.
+pub const DEFAULT_RATE_LIMIT_BURST: u32 = 60;
+/// How many Explicit Lookups per second a client gets back.
+pub const DEFAULT_RATE_LIMIT_PER_SECOND: f64 = 1.0;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -72,6 +84,18 @@ pub struct Config {
     pub update_interval: Duration,
     pub maxmind: MaxMind,
     pub ipinfo: Ipinfo,
+    pub rate_limit: RateLimitConfig,
+}
+
+/// The token bucket every client gets for Explicit Lookups.
+#[derive(Debug, Clone)]
+pub struct RateLimitConfig {
+    /// Tokens in a full bucket (at least 1).
+    pub burst: u32,
+    /// Tokens added per second (positive, may be fractional).
+    pub per_second: f64,
+    /// Clients that are never limited.
+    pub allow: Vec<IpNet>,
 }
 
 /// Where and how GeoLite2 City (Location Data) is downloaded.
@@ -129,6 +153,15 @@ struct RawConfig {
     dns: Option<RawDns>,
     maxmind: Option<RawMaxMind>,
     ipinfo: Option<RawIpinfo>,
+    rate_limit: Option<RawRateLimit>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawRateLimit {
+    burst: Option<u32>,
+    per_second: Option<f64>,
+    allow: Option<Vec<String>>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -185,7 +218,7 @@ impl Config {
             .trusted_proxies
             .unwrap_or_default()
             .iter()
-            .map(|s| parse_net(s))
+            .map(|s| parse_net("trusted_proxies", s))
             .collect::<anyhow::Result<_>>()?;
         let log_level = match raw.log_level {
             Some(s) => s.parse().map_err(|_| {
@@ -228,6 +261,27 @@ impl Config {
             token: ipinfo.token.map(Secret::new),
             base_url: parse_base_url("ipinfo.base_url", ipinfo.base_url, DEFAULT_IPINFO_URL)?,
         };
+        let rate_limit = raw.rate_limit.unwrap_or_default();
+        let rate_limit = RateLimitConfig {
+            burst: match rate_limit.burst {
+                Some(0) => anyhow::bail!("rate_limit.burst must be at least 1"),
+                Some(n) => n,
+                None => DEFAULT_RATE_LIMIT_BURST,
+            },
+            per_second: match rate_limit.per_second {
+                Some(r) if !(r.is_finite() && r > 0.0) => {
+                    anyhow::bail!("rate_limit.per_second must be a positive number, not {r}")
+                }
+                Some(r) => r,
+                None => DEFAULT_RATE_LIMIT_PER_SECOND,
+            },
+            allow: rate_limit
+                .allow
+                .unwrap_or_default()
+                .iter()
+                .map(|s| parse_net("rate_limit.allow", s))
+                .collect::<anyhow::Result<_>>()?,
+        };
         Ok(Self {
             listen: raw
                 .listen
@@ -240,18 +294,18 @@ impl Config {
             update_interval,
             maxmind,
             ipinfo,
+            rate_limit,
         })
     }
 }
 
 /// Parses an IP address (as a single-address network) or a CIDR.
-fn parse_net(s: &str) -> anyhow::Result<IpNet> {
+fn parse_net(key: &str, s: &str) -> anyhow::Result<IpNet> {
     if let Ok(ip) = s.parse::<IpAddr>() {
         return Ok(IpNet::from(ip));
     }
-    s.parse::<IpNet>().map_err(|_| {
-        anyhow::anyhow!("trusted_proxies: {s:?} is not an IP address or CIDR (e.g. 10.0.0.0/8)")
-    })
+    s.parse::<IpNet>()
+        .map_err(|_| anyhow::anyhow!("{key}: {s:?} is not an IP address or CIDR (e.g. 10.0.0.0/8)"))
 }
 
 /// Parses `ip:port`, `[ipv6]:port` or a bare IP address (port 53).
@@ -306,12 +360,15 @@ mod tests {
         assert_eq!(c.maxmind.base_url, DEFAULT_MAXMIND_URL);
         assert!(c.ipinfo.token.is_none());
         assert_eq!(c.ipinfo.base_url, DEFAULT_IPINFO_URL);
+        assert_eq!(c.rate_limit.burst, 60);
+        assert_eq!(c.rate_limit.per_second, 1.0);
+        assert!(c.rate_limit.allow.is_empty());
     }
 
     #[test]
     fn every_key_is_read() {
         let c = Config::parse(
-            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n",
+            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n",
             Path::new("/etc/iplookup"),
         )
         .unwrap();
@@ -329,6 +386,16 @@ mod tests {
         assert_eq!(c.maxmind.base_url, "http://127.0.0.1:1");
         assert_eq!(c.ipinfo.token.as_ref().unwrap().expose(), "ii-token");
         assert_eq!(c.ipinfo.base_url, "http://127.0.0.1:2");
+        assert_eq!(c.rate_limit.burst, 5);
+        assert_eq!(c.rate_limit.per_second, 0.5);
+        let allow: Vec<String> = c.rate_limit.allow.iter().map(|n| n.to_string()).collect();
+        assert_eq!(allow, ["203.0.113.7/32", "2001:db8::/32"]);
+    }
+
+    #[test]
+    fn rate_limit_per_second_may_be_an_integer() {
+        let c = Config::parse("[rate_limit]\nper_second = 2", Path::new("/")).unwrap();
+        assert_eq!(c.rate_limit.per_second, 2.0);
     }
 
     #[test]
@@ -392,6 +459,13 @@ mod tests {
             "[maxmind]\naccount_id = 1",
             "[maxmind]\nbase_url = \"download.maxmind.com\"",
             "[ipinfo]\ntokne = \"t\"",
+            "[rate_limit]\nburst = 0",
+            "[rate_limit]\nburst = -1",
+            "[rate_limit]\nper_second = 0",
+            "[rate_limit]\nper_second = -1.5",
+            "[rate_limit]\nper_second = \"1/s\"",
+            "[rate_limit]\nallow = [\"office\"]",
+            "[rate_limit]\nalow = []",
         ] {
             assert!(Config::parse(bad, Path::new("/")).is_err(), "{bad}");
         }

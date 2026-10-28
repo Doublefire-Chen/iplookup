@@ -20,6 +20,7 @@ use crate::client::client_ip;
 use crate::config::Config;
 use crate::databases::DatabaseReader;
 use crate::lookup::{lookup, parse_ip};
+use crate::rate_limit::RateLimiter;
 use crate::record::{Field, Record};
 use crate::reverse_dns::{PtrResolver, ReverseDns};
 
@@ -28,6 +29,7 @@ pub struct AppState {
     pub trusted_proxies: Arc<[IpNet]>,
     pub databases: Arc<dyn DatabaseReader>,
     pub reverse_dns: Arc<ReverseDns>,
+    pub rate_limiter: Arc<RateLimiter>,
 }
 
 impl AppState {
@@ -42,7 +44,28 @@ impl AppState {
             trusted_proxies: config.trusted_proxies.clone().into(),
             databases,
             reverse_dns: Arc::new(ReverseDns::new(ptr, config.dns_timeout)),
+            rate_limiter: Arc::new(RateLimiter::new(&config.rate_limit)),
         }
+    }
+
+    /// Spends one of the client's Explicit Lookup tokens; `Some` is the
+    /// 429 to send instead when the bucket is empty. Every Explicit Lookup
+    /// (API or page) calls this before looking anything up; Self Lookups
+    /// never do.
+    pub fn rate_limited(&self, peer: SocketAddr, headers: &HeaderMap) -> Option<Response> {
+        let client = client_ip(peer, headers, &self.trusted_proxies);
+        self.rate_limiter.check(client).err().map(|wait| {
+            let secs = wait.as_secs();
+            let unit = if secs == 1 { "second" } else { "seconds" };
+            let mut res = error_response(
+                StatusCode::TOO_MANY_REQUESTS,
+                "Rate limit exceeded",
+                &format!("Too many lookups of other addresses. Please retry after {secs} {unit}."),
+            );
+            res.headers_mut()
+                .insert(header::RETRY_AFTER, HeaderValue::from(secs));
+            res
+        })
     }
 
     /// The Record of `ip`, echoed as `as_typed`.
@@ -75,7 +98,8 @@ async fn self_lookup(
     json_response(self_record(&state, peer, &headers).await.to_json())
 }
 
-/// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup).
+/// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup,
+/// rate-limited).
 async fn one_segment(
     State(state): State<AppState>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -85,27 +109,40 @@ async fn one_segment(
     if let Some(field) = Field::parse(&segment) {
         return field_response(self_record(&state, peer, &headers).await.field(field));
     }
-    match parse_ip(&segment) {
-        Some(ip) => json_response(state.lookup(&segment, ip).await.to_json()),
-        None => wrong_ip().await,
+    let Some(ip) = parse_ip(&segment) else {
+        return wrong_ip().await;
+    };
+    if let Some(limited) = state.rate_limited(peer, &headers) {
+        return limited;
     }
+    json_response(state.lookup(&segment, ip).await.to_json())
 }
 
 /// `/{ip}/json` or `/{ip}/{field}`: an Explicit Lookup as JSON, or one of
-/// its Fields as plain text.
+/// its Fields as plain text (rate-limited).
 async fn two_segments(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path((as_typed, suffix)): Path<(String, String)>,
 ) -> Response {
     let Some(ip) = parse_ip(&as_typed) else {
         return wrong_ip().await;
     };
-    if suffix == "json" {
-        return json_response(state.lookup(&as_typed, ip).await.to_json());
+    let field = match suffix.as_str() {
+        "json" => None,
+        _ => match Field::parse(&suffix) {
+            Some(field) => Some(field),
+            None => return wrong_ip().await,
+        },
+    };
+    if let Some(limited) = state.rate_limited(peer, &headers) {
+        return limited;
     }
-    match Field::parse(&suffix) {
-        Some(field) => field_response(state.lookup(&as_typed, ip).await.field(field)),
-        None => wrong_ip().await,
+    let record = state.lookup(&as_typed, ip).await;
+    match field {
+        None => json_response(record.to_json()),
+        Some(field) => field_response(record.field(field)),
     }
 }
 

@@ -26,6 +26,36 @@ AS13335 Cloudflare, Inc.
 
 A Field with no value returns 404 with an empty body.
 
+## Rate limits
+
+Looking up your own address (`/`, `/json`, `/{field}`) is never limited.
+Looking up other addresses (`/{ip}`, `/{ip}/json`, `/{ip}/{field}`) is
+limited per client, where a client is an IPv4 address or an IPv6 /64: by
+default 60 in a row, then 1 more per second. Over the limit you get `429`
+with a `Retry-After` header (in seconds) and
+
+```json
+{
+  "status": 429,
+  "error": {
+    "title": "Rate limit exceeded",
+    "message": "Too many lookups of other addresses. Please retry after 1 second."
+  }
+}
+```
+
+Operators set this in the config file:
+
+```toml
+[rate_limit]
+burst = 60        # lookups in a row
+per_second = 1    # tokens back per second (fractions allowed)
+allow = ["192.0.2.0/24", "2001:db8::1"]  # IPs and CIDRs never limited
+```
+
+Behind a reverse proxy, list it in `trusted_proxies` so clients are told
+apart by `X-Real-IP` rather than all sharing the proxy's bucket.
+
 Work in progress: the full API documentation comes with later releases.
 
 ## Layout

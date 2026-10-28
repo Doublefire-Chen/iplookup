@@ -35,3 +35,13 @@ token = "YOUR_TOKEN"
 resolver = "127.0.0.1:53"
 # A Lookup waits at most this long for a PTR name, then leaves hostname out.
 timeout = "500ms"
+
+[rate_limit]
+# Explicit Lookups (/{ip}, /{ip}/json, /{ip}/{field}) per client, where a
+# client is an IPv4 address or an IPv6 /64: up to `burst` in a row, then
+# `per_second` more each second (fractions allowed). Self Lookups are never
+# limited. Over the limit: 429 with Retry-After.
+burst = 60
+per_second = 1
+# Clients that are never limited (IPs or CIDRs).
+allow = []
