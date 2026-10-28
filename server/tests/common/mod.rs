@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -27,17 +27,21 @@ use axum::http::{HeaderMap, Request, StatusCode};
 use http_body_util::BodyExt;
 use iplookup::app::{self, AppState};
 use iplookup::config::Config;
-use iplookup::databases::{DataSourceInfo, DataSourcesInfo, DatabaseReader, IpData};
+use iplookup::databases::{
+    Coordinates, DataSourceInfo, DataSourcesInfo, DatabaseReader, IpData, LocationData, NetworkData,
+};
 use serde_json::Value;
 use tower::ServiceExt;
 
 /// The peer of every request that doesn't set one.
 pub const DEFAULT_PEER: &str = "203.0.113.7:50000";
 
-/// A [`DatabaseReader`] that knows only the addresses it is given.
+/// A [`DatabaseReader`] that knows only the addresses it is given, and
+/// logs every address it is asked about (see [`FakeDatabases::lookups`]).
 #[derive(Default)]
 pub struct FakeDatabases {
     data: HashMap<IpAddr, IpData>,
+    lookups: Arc<Mutex<Vec<IpAddr>>>,
 }
 
 impl FakeDatabases {
@@ -49,10 +53,17 @@ impl FakeDatabases {
         self.data.insert(ip.parse().expect("valid test IP"), data);
         self
     }
+
+    /// A handle on the log of looked-up addresses; take it before handing
+    /// the fake to the app.
+    pub fn lookups(&self) -> Arc<Mutex<Vec<IpAddr>>> {
+        self.lookups.clone()
+    }
 }
 
 impl DatabaseReader for FakeDatabases {
     fn lookup(&self, ip: IpAddr) -> IpData {
+        self.lookups.lock().unwrap().push(ip);
         self.data.get(&ip).cloned().unwrap_or_default()
     }
 
@@ -66,6 +77,31 @@ impl DatabaseReader for FakeDatabases {
             location: info("GeoLite2-City"),
             network: info("ipinfo"),
         }
+    }
+}
+
+/// Full Location and Network Data, as for Google's 8.8.8.8.
+pub fn google() -> IpData {
+    IpData {
+        location: Some(LocationData {
+            city: Some("Mountain View".into()),
+            region: Some("California".into()),
+            country: Some("US".into()),
+            country_name: Some("United States".into()),
+            continent: Some("North America".into()),
+            postal: Some("94043".into()),
+            coordinates: Some(Coordinates {
+                latitude: 37.4056,
+                longitude: -122.0775,
+            }),
+            accuracy_radius: Some(1000),
+            timezone: Some("America/Los_Angeles".into()),
+        }),
+        network: Some(NetworkData {
+            asn: Some("AS15169".into()),
+            name: Some("Google LLC".into()),
+            domain: Some("google.com".into()),
+        }),
     }
 }
 

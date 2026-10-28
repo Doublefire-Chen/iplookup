@@ -69,3 +69,18 @@ async fn google_dns_over_ipv6() {
         "{res}"
     );
 }
+
+#[tokio::test]
+async fn explicit_lookups() {
+    let Some(app) = real_app() else { return };
+    for (path, ip, asn) in [
+        ("/8.8.8.8", "8.8.8.8", "AS15169"),
+        ("/1.1.1.1/json", "1.1.1.1", "AS13335"),
+        ("/2001:4860:4860::8888", "2001:4860:4860::8888", "AS15169"),
+        ("/::ffff:8.8.8.8/json", "::ffff:8.8.8.8", "AS15169"),
+    ] {
+        let res = app.get(path).send().await.json();
+        assert_eq!(res["ip"], ip, "{path}");
+        assert_eq!(res["asn"]["asn"], asn, "{path}: {res}");
+    }
+}

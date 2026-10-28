@@ -11,6 +11,9 @@ use crate::databases::IpData;
 pub struct Record {
     /// The address as requested.
     pub ip: String,
+    /// Set only on a Bogon's Record, which carries nothing else.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub bogon: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hostname: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,7 +32,9 @@ pub struct Record {
     pub postal: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
-    pub readme: &'static str,
+    /// Always set, except on a Bogon's Record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readme: Option<&'static str>,
     // Extras, after ipinfo's keys.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub country_name: Option<String>,
@@ -66,6 +71,7 @@ impl Record {
         });
         Self {
             ip,
+            bogon: false,
             hostname: None,
             city: location.city,
             region: location.region,
@@ -76,7 +82,7 @@ impl Record {
             org,
             postal: location.postal,
             timezone: location.timezone,
-            readme: crate::README_URL,
+            readme: Some(crate::README_URL),
             country_name: location.country_name,
             continent: location.continent,
             accuracy_radius: location.accuracy_radius,
@@ -85,6 +91,27 @@ impl Record {
                 name: n.name,
                 domain: n.domain,
             }),
+        }
+    }
+
+    /// A Bogon's Record: `{"ip": …, "bogon": true}` and nothing else.
+    pub fn bogon(ip: String) -> Self {
+        Self {
+            ip,
+            bogon: true,
+            hostname: None,
+            city: None,
+            region: None,
+            country: None,
+            loc: None,
+            org: None,
+            postal: None,
+            timezone: None,
+            readme: None,
+            country_name: None,
+            continent: None,
+            accuracy_radius: None,
+            asn: None,
         }
     }
 

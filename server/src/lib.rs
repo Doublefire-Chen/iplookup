@@ -5,11 +5,13 @@
 //! (see `tests/common`).
 
 pub mod app;
+pub mod bogon;
 pub mod cli;
 pub mod client;
 pub mod config;
 pub mod databases;
 pub mod logging;
+pub mod lookup;
 pub mod record;
 
 /// The server version.

@@ -9,8 +9,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::Router;
-use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::extract::{ConnectInfo, Path, Request, State};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
@@ -19,6 +19,7 @@ use ipnet::IpNet;
 use crate::client::client_ip;
 use crate::config::Config;
 use crate::databases::DatabaseReader;
+use crate::lookup::{explicit_lookup, parse_ip};
 use crate::record::Record;
 
 #[derive(Clone)]
@@ -36,10 +37,16 @@ impl AppState {
     }
 }
 
+/// Routes are matched in order: reserved names (static routes such as
+/// `/json`, which axum always prefers over `/{ip}`), then the path parsed as
+/// an IP address, then the "Wrong ip" 404.
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(self_lookup))
         .route("/json", get(self_lookup))
+        .route("/{ip}", get(explicit))
+        .route("/{ip}/json", get(explicit))
+        .fallback(wrong_ip)
         .layer(middleware::from_fn(log_request))
         .with_state(state)
 }
@@ -55,7 +62,45 @@ async fn self_lookup(
     json_response(record.to_json())
 }
 
-fn json_response(body: String) -> Response {
+/// An Explicit Lookup: the Record of the address in the path, as JSON.
+async fn explicit(State(state): State<AppState>, Path(as_typed): Path<String>) -> Response {
+    match parse_ip(&as_typed) {
+        Some(ip) => json_response(explicit_lookup(&*state.databases, &as_typed, ip).to_json()),
+        None => wrong_ip().await,
+    }
+}
+
+/// ipinfo.io's 404 for anything that isn't a route or an IP address.
+async fn wrong_ip() -> Response {
+    error_response(
+        StatusCode::NOT_FOUND,
+        "Wrong ip",
+        "Please provide a valid IP address",
+    )
+}
+
+/// An ipinfo-style error: `{"status": …, "error": {"title", "message"}}`.
+pub fn error_response(status: StatusCode, title: &str, message: &str) -> Response {
+    #[derive(serde::Serialize)]
+    struct Body<'a> {
+        status: u16,
+        error: Error<'a>,
+    }
+    #[derive(serde::Serialize)]
+    struct Error<'a> {
+        title: &'a str,
+        message: &'a str,
+    }
+    let body = Body {
+        status: status.as_u16(),
+        error: Error { title, message },
+    };
+    let mut body = serde_json::to_string_pretty(&body).expect("JSON always serialises");
+    body.push('\n');
+    (status, json_response(body)).into_response()
+}
+
+pub fn json_response(body: String) -> Response {
     (
         [(
             header::CONTENT_TYPE,

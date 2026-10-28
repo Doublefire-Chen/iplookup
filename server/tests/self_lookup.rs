@@ -3,35 +3,11 @@
 mod common;
 
 use axum::http::StatusCode;
-use common::{FakeDatabases, TestApp};
+use common::{FakeDatabases, TestApp, google};
 use iplookup::databases::{Coordinates, IpData, LocationData, NetworkData};
 use serde_json::json;
 
 const README: &str = "https://github.com/Doublefire-Chen/iplookup/blob/main/README.md";
-
-fn google() -> IpData {
-    IpData {
-        location: Some(LocationData {
-            city: Some("Mountain View".into()),
-            region: Some("California".into()),
-            country: Some("US".into()),
-            country_name: Some("United States".into()),
-            continent: Some("North America".into()),
-            postal: Some("94043".into()),
-            coordinates: Some(Coordinates {
-                latitude: 37.4056,
-                longitude: -122.0775,
-            }),
-            accuracy_radius: Some(1000),
-            timezone: Some("America/Los_Angeles".into()),
-        }),
-        network: Some(NetworkData {
-            asn: Some("AS15169".into()),
-            name: Some("Google LLC".into()),
-            domain: Some("google.com".into()),
-        }),
-    }
-}
 
 #[tokio::test]
 async fn full_record_has_ipinfo_keys_then_the_extras() {
