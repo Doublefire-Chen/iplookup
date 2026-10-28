@@ -14,6 +14,7 @@ pub mod logging;
 pub mod lookup;
 pub mod record;
 pub mod reverse_dns;
+pub mod updater;
 
 /// The server version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

@@ -37,8 +37,17 @@ Work in progress: the full API documentation comes with later releases.
 ## Data
 
 Location Data comes from MaxMind GeoLite2 City and Network Data from IPinfo
-Lite. For now, put `GeoLite2-City.mmdb` and `ipinfo_lite.mmdb` in the
-configured data directory (`[data] dir`) by hand.
+Lite. Both are free with an account; put the MaxMind account ID and licence
+key (`[maxmind]`) and the IPinfo token (`[ipinfo]`) in the config file (see
+`deploy/iplookup.toml`) and keep it mode 0600.
+
+iplookup downloads both files into the data directory (`[data] dir`) itself:
+missing files before it starts listening (it exits with an error if that
+fails), then checks for new data every `[data] update_interval` (default
+`12h`) and swaps it in without a restart. A failed update keeps the current
+data, logs a warning and retries later. Only one copy of each file is kept.
+`iplookup update` checks once, now; `iplookup update --data-dir DIR` fills
+another directory.
 
 This product includes GeoLite Data created by MaxMind, available from
 <https://www.maxmind.com>. IP address data is powered by
@@ -52,7 +61,10 @@ cd web && pnpm install && pnpm test && pnpm build
 ```
 
 The real-data tests read both databases from `server/testdata/`, which is
-gitignored and must never be committed. Without the files those tests skip.
+gitignored and must never be committed; fill or refresh it with
+`iplookup --config <your config> update --data-dir server/testdata`. Without
+the files those tests skip. The updater tests use a local stand-in for both
+download servers.
 No test does real DNS, except one opt-in check of the real resolver:
 `cargo test --test reverse_dns -- --ignored`.
 

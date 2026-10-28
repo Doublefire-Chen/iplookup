@@ -1,5 +1,6 @@
 # iplookup config for the reference deployment (ip.aka.cy). Every key is
 # optional; relative paths are resolved against this file's directory.
+# It holds credentials: keep it readable only by iplookup (chmod 0600).
 
 # nginx proxies to this address.
 listen = "127.0.0.1:18310"
@@ -12,8 +13,21 @@ trusted_proxies = ["127.0.0.1", "::1"]
 log_level = "info"
 
 [data]
-# Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb.
+# Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb (missing files are
+# downloaded before the app starts listening) and their .state files.
 dir = "/var/lib/iplookup"
+# How often both Data Sources are checked for new data.
+update_interval = "12h"
+
+[maxmind]
+# GeoLite2 City (Location Data): your MaxMind account ID and licence key
+# (https://www.maxmind.com/en/accounts/current/license-key).
+account_id = 123456
+license_key = "YOUR_LICENSE_KEY"
+
+[ipinfo]
+# IPinfo Lite (Network Data): your token (https://ipinfo.io/dashboard/token).
+token = "YOUR_TOKEN"
 
 [dns]
 # Asked for reverse DNS (hostname): the local unbound. Port 53 unless given.

@@ -18,6 +18,9 @@
 
 #![allow(dead_code)] // each test binary uses a different subset
 
+pub mod mmdb;
+pub mod upstream;
+
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
@@ -78,6 +81,7 @@ impl DatabaseReader for FakeDatabases {
             source: source.to_owned(),
             path: format!("/fake/{source}").into(),
             build: 1_767_225_600,
+            checked: None,
         };
         DataSourcesInfo {
             location: info("GeoLite2-City"),
