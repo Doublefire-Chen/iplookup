@@ -1,18 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useParams } from "react-router";
+import { AccuracyMap } from "../components/AccuracyMap";
 import { CopyButton } from "../components/CopyButton";
 import { RecordCard } from "../components/RecordCard";
 import { SearchBox } from "../components/SearchBox";
 import { curlCommand, recordJson } from "../format";
 import { injectedFor, mainHost } from "../injected";
 import { isIPv4, isIPv6 } from "../ip";
+import { mapCircles } from "../map";
 import type { PageError } from "../pageData";
 import type { IpRecord } from "../record";
 import { NotFoundPage } from "./NotFoundPage";
 
 type View = { record: IpRecord } | { error: PageError } | { loading: true } | { failed: true };
 
-/** `/{ip}`: an Explicit Lookup's Record, as a table, raw JSON and a curl command. */
+/** `/{ip}`: an Explicit Lookup's Record, as a table, a map, raw JSON and a curl command. */
 export function RecordPage() {
   const { pathname } = useLocation();
   // A new address is a new page: start again from its own data.
@@ -62,9 +64,11 @@ function RecordView({ path }: { path: string }) {
 function RecordDetails({ record }: { record: IpRecord }) {
   const command = curlCommand(mainHost(), record.ip);
   const json = recordJson(record);
+  const circles = useMemo(() => mapCircles([record]), [record]);
   return (
     <>
       <RecordCard title="IP address" record={record} />
+      <AccuracyMap circles={circles} />
       <section className="card code-card" aria-label="From a terminal">
         <div className="code-head">
           <h2>From a terminal</h2>

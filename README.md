@@ -37,6 +37,11 @@ Invalid addresses and unknown paths get a 404 page (curl still gets the
 `Retry-After`. `/json`, `/{ip}/json` and the Field paths always return JSON
 or plain text, even in a browser.
 
+Records with coordinates and an Accuracy Radius also get a map (Leaflet
+with OpenStreetMap's public tiles, loaded from `tile.openstreetmap.org` by
+the visitor's browser): a circle of that radius, deliberately without a pin.
+Bogons and Records without coordinates or a radius get no map.
+
 Set the public hostname the pages show in their commands:
 
 ```toml

@@ -306,7 +306,66 @@ code {
   line-height: 1.45;
 }
 
+/* The Accuracy Radius map (Leaflet, lazy-loaded with its own CSS) */
+
+.card.map-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.map {
+  height: 18rem;
+  background: var(--code-bg);
+  /* Keep Leaflet's z-indexed panes and controls inside the card. */
+  isolation: isolate;
+}
+
+.map.leaflet-container {
+  font: inherit;
+  font-size: 0.75rem;
+  background: var(--code-bg);
+}
+
+/* Hides the hairline seams between tiles at fractional zoom. */
+.map .leaflet-tile {
+  outline: 1px solid transparent;
+}
+
+.map .accuracy-circle {
+  stroke: var(--accent);
+  fill: var(--accent);
+}
+
+.map-note {
+  margin: 0;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* OSM only has light tiles: invert them, keeping water blue-ish. */
+  .map .leaflet-tile-pane {
+    filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9);
+  }
+
+  .map.leaflet-container .leaflet-bar a,
+  .map.leaflet-container .leaflet-control-attribution {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border);
+  }
+
+  .map.leaflet-container .leaflet-control-attribution a {
+    color: var(--accent);
+  }
+}
+
 @media (max-width: 30rem) {
+  .map {
+    height: 14rem;
+  }
+
   .card {
     padding: 1.1rem;
   }

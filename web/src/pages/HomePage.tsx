@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { AccuracyMap } from "../components/AccuracyMap";
 import { RecordCard } from "../components/RecordCard";
 import { SearchBox } from "../components/SearchBox";
 import { SelfCards } from "../components/SelfCards";
 import { configuredHosts, injectedFor, mainHost } from "../injected";
+import { mapCircles } from "../map";
 import type { IpRecord } from "../record";
 import { planCards } from "../selfCards";
 
@@ -46,8 +48,12 @@ function SingleCard({ injected }: { injected?: IpRecord }) {
       .then(setRecord, () => setFailed(true));
   }, [record]);
 
+  const circles = useMemo(() => mapCircles([record]), [record]);
   return record ? (
-    <RecordCard title="Your IP address" record={record} />
+    <>
+      <RecordCard title="Your IP address" record={record} />
+      <AccuracyMap circles={circles} />
+    </>
   ) : (
     <section className="card">
       <p className="muted">{failed ? "Your Record couldn't be loaded." : "Loading…"}</p>

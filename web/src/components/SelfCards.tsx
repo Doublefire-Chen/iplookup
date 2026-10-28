@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { mapCircles } from "../map";
 import type { IpRecord } from "../record";
 import {
   fetchSelfRecord,
@@ -8,12 +9,14 @@ import {
   type CardState,
   type Protocol,
 } from "../selfCards";
+import { AccuracyMap } from "./AccuracyMap";
 import { RecordCard } from "./RecordCard";
 
 /**
  * The visitor's IPv4 and IPv6 Self Lookups side by side. Cards with a
  * `fetchUrl` start loading and are fetched in parallel; the rest are
- * already filled.
+ * already filled. One map below both cards draws each loaded Record's
+ * circle (the cards are too narrow for a map each).
  */
 export function SelfCards({ plans, injected }: { plans: CardPlans; injected?: IpRecord }) {
   const [states, setStates] = useState<Record<Protocol, CardState>>(() => ({
@@ -37,12 +40,23 @@ export function SelfCards({ plans, injected }: { plans: CardPlans; injected?: Ip
     };
   }, [plans, injected]);
 
+  const circles = useMemo(
+    () =>
+      mapCircles(
+        PROTOCOLS.map((p) => (states[p].kind === "loaded" ? states[p].record : undefined)),
+      ),
+    [states],
+  );
+
   return (
-    <div className="self-cards">
-      {PROTOCOLS.map((protocol) => (
-        <SelfCard key={protocol} protocol={protocol} state={states[protocol]} />
-      ))}
-    </div>
+    <>
+      <div className="self-cards">
+        {PROTOCOLS.map((protocol) => (
+          <SelfCard key={protocol} protocol={protocol} state={states[protocol]} />
+        ))}
+      </div>
+      <AccuracyMap circles={circles} />
+    </>
   );
 }
 
