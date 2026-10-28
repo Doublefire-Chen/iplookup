@@ -53,6 +53,8 @@ cd web && pnpm install && pnpm test && pnpm build
 
 The real-data tests read both databases from `server/testdata/`, which is
 gitignored and must never be committed. Without the files those tests skip.
+No test does real DNS, except one opt-in check of the real resolver:
+`cargo test --test reverse_dns -- --ignored`.
 
 ## Licence
 

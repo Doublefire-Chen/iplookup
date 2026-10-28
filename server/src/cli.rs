@@ -11,6 +11,7 @@ use crate::app::{self, AppState};
 use crate::config::Config;
 use crate::databases::{DatabaseReader, MmdbDatabases};
 use crate::logging;
+use crate::reverse_dns::HickoryPtr;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -58,11 +59,16 @@ async fn serve(config: Config) -> anyhow::Result<()> {
             source.build
         );
     }
+    let ptr = HickoryPtr::new(config.dns_resolver, config.dns_timeout)?;
+    match config.dns_resolver {
+        Some(addr) => tracing::info!("reverse DNS via {addr}"),
+        None => tracing::info!("reverse DNS via the system resolver"),
+    }
     let listener = tokio::net::TcpListener::bind(config.listen)
         .await
         .with_context(|| format!("binding {}", config.listen))?;
     let addr = listener.local_addr()?;
-    let router = app::router(AppState::new(&config, Arc::new(databases)));
+    let router = app::router(AppState::new(&config, Arc::new(databases), Arc::new(ptr)));
     // Printed (not just logged) so scripts and tests can find the port.
     println!("iplookup {} listening on http://{addr}", crate::VERSION);
     axum::serve(

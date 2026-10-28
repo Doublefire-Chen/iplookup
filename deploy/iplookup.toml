@@ -14,3 +14,10 @@ log_level = "info"
 [data]
 # Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb.
 dir = "/var/lib/iplookup"
+
+[dns]
+# Asked for reverse DNS (hostname): the local unbound. Port 53 unless given.
+# Leave unset to use the system resolver (/etc/resolv.conf).
+resolver = "127.0.0.1:53"
+# A Lookup waits at most this long for a PTR name, then leaves hostname out.
+timeout = "500ms"

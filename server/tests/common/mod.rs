@@ -11,6 +11,9 @@
 //! assert_eq!(res.status, StatusCode::OK);
 //! ```
 //!
+//! Reverse DNS goes to a [`FakeReverseDns`], which by default knows no PTR
+//! names (no test ever does real DNS).
+//!
 //! Tests only look at requests and responses, never at internal state.
 
 #![allow(dead_code)] // each test binary uses a different subset
@@ -19,6 +22,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, Bytes};
@@ -30,6 +34,7 @@ use iplookup::config::Config;
 use iplookup::databases::{
     Coordinates, DataSourceInfo, DataSourcesInfo, DatabaseReader, IpData, LocationData, NetworkData,
 };
+use iplookup::reverse_dns::{BoxFuture, PtrAnswer, PtrResolver};
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -81,6 +86,68 @@ impl DatabaseReader for FakeDatabases {
     }
 }
 
+/// A [`PtrResolver`] that answers from a table, and logs every address it
+/// is asked about (see [`FakeReverseDns::queries`]). Unknown addresses
+/// have no PTR.
+#[derive(Default)]
+pub struct FakeReverseDns {
+    answers: HashMap<IpAddr, (Duration, PtrAnswer)>,
+    queries: Arc<Mutex<Vec<IpAddr>>>,
+}
+
+impl FakeReverseDns {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// `ip` has the PTR name `name`, cacheable for `ttl`.
+    pub fn name(self, ip: &str, name: &str, ttl: Duration) -> Self {
+        self.slow(ip, Duration::ZERO, name, ttl)
+    }
+
+    /// `ip` has no PTR name, and says so for `ttl`.
+    pub fn no_ptr(mut self, ip: &str, ttl: Duration) -> Self {
+        let answer = PtrAnswer { name: None, ttl };
+        self.answers
+            .insert(ip.parse().expect("valid test IP"), (Duration::ZERO, answer));
+        self
+    }
+
+    /// `ip` has the PTR name `name`, but the answer takes `delay`.
+    pub fn slow(mut self, ip: &str, delay: Duration, name: &str, ttl: Duration) -> Self {
+        let answer = PtrAnswer {
+            name: Some(name.to_owned()),
+            ttl,
+        };
+        self.answers
+            .insert(ip.parse().expect("valid test IP"), (delay, answer));
+        self
+    }
+
+    /// A handle on the log of queried addresses; take it before handing
+    /// the fake to the app.
+    pub fn queries(&self) -> Arc<Mutex<Vec<IpAddr>>> {
+        self.queries.clone()
+    }
+}
+
+impl PtrResolver for FakeReverseDns {
+    fn ptr(&self, ip: IpAddr) -> BoxFuture<'_, PtrAnswer> {
+        self.queries.lock().unwrap().push(ip);
+        let (delay, answer) = self.answers.get(&ip).cloned().unwrap_or((
+            Duration::ZERO,
+            PtrAnswer {
+                name: None,
+                ttl: Duration::from_secs(60),
+            },
+        ));
+        Box::pin(async move {
+            tokio::time::sleep(delay).await;
+            answer
+        })
+    }
+}
+
 /// Full Location and Network Data, as for Google's 8.8.8.8.
 pub fn google() -> IpData {
     IpData {
@@ -117,9 +184,31 @@ impl TestApp {
         Self::with_reader(&config, Arc::new(databases))
     }
 
+    /// The app with `databases` and `reverse_dns`, configured from
+    /// `config_toml`.
+    pub fn with_reverse_dns(
+        databases: impl DatabaseReader,
+        reverse_dns: FakeReverseDns,
+        config_toml: &str,
+    ) -> Self {
+        let config = Config::parse(config_toml, Path::new("/")).expect("valid test config");
+        Self {
+            router: app::router(AppState::new(
+                &config,
+                Arc::new(databases),
+                Arc::new(reverse_dns),
+            )),
+        }
+    }
+
+    /// The app with `databases` and a reverse DNS that knows no names.
     pub fn with_reader(config: &Config, databases: Arc<dyn DatabaseReader>) -> Self {
         Self {
-            router: app::router(AppState::new(config, databases)),
+            router: app::router(AppState::new(
+                config,
+                databases,
+                Arc::new(FakeReverseDns::new()),
+            )),
         }
     }
 

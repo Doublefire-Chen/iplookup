@@ -4,7 +4,7 @@
 //! must be served with `into_make_service_with_connect_info::<SocketAddr>()`
 //! (tests insert the extension into each request instead).
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -21,19 +21,33 @@ use crate::config::Config;
 use crate::databases::DatabaseReader;
 use crate::lookup::{lookup, parse_ip};
 use crate::record::{Field, Record};
+use crate::reverse_dns::{PtrResolver, ReverseDns};
 
 #[derive(Clone)]
 pub struct AppState {
     pub trusted_proxies: Arc<[IpNet]>,
     pub databases: Arc<dyn DatabaseReader>,
+    pub reverse_dns: Arc<ReverseDns>,
 }
 
 impl AppState {
-    pub fn new(config: &Config, databases: Arc<dyn DatabaseReader>) -> Self {
+    /// `ptr` answers reverse-DNS queries; the app adds `dns.timeout` and
+    /// the cache.
+    pub fn new(
+        config: &Config,
+        databases: Arc<dyn DatabaseReader>,
+        ptr: Arc<dyn PtrResolver>,
+    ) -> Self {
         Self {
             trusted_proxies: config.trusted_proxies.clone().into(),
             databases,
+            reverse_dns: Arc::new(ReverseDns::new(ptr, config.dns_timeout)),
         }
+    }
+
+    /// The Record of `ip`, echoed as `as_typed`.
+    async fn lookup(&self, as_typed: &str, ip: IpAddr) -> Record {
+        lookup(&*self.databases, &self.reverse_dns, as_typed, ip).await
     }
 }
 
@@ -58,7 +72,7 @@ async fn self_lookup(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
 ) -> Response {
-    json_response(self_record(&state, peer, &headers).to_json())
+    json_response(self_record(&state, peer, &headers).await.to_json())
 }
 
 /// `/{field}` (a Self Lookup Field) or `/{ip}` (an Explicit Lookup).
@@ -69,10 +83,10 @@ async fn one_segment(
     Path(segment): Path<String>,
 ) -> Response {
     if let Some(field) = Field::parse(&segment) {
-        return field_response(self_record(&state, peer, &headers).field(field));
+        return field_response(self_record(&state, peer, &headers).await.field(field));
     }
     match parse_ip(&segment) {
-        Some(ip) => json_response(lookup(&*state.databases, &segment, ip).to_json()),
+        Some(ip) => json_response(state.lookup(&segment, ip).await.to_json()),
         None => wrong_ip().await,
     }
 }
@@ -87,18 +101,18 @@ async fn two_segments(
         return wrong_ip().await;
     };
     if suffix == "json" {
-        return json_response(lookup(&*state.databases, &as_typed, ip).to_json());
+        return json_response(state.lookup(&as_typed, ip).await.to_json());
     }
     match Field::parse(&suffix) {
-        Some(field) => field_response(lookup(&*state.databases, &as_typed, ip).field(field)),
+        Some(field) => field_response(state.lookup(&as_typed, ip).await.field(field)),
         None => wrong_ip().await,
     }
 }
 
 /// The Record of the client's address (a Bogon's Record for a Bogon).
-fn self_record(state: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Record {
+async fn self_record(state: &AppState, peer: SocketAddr, headers: &HeaderMap) -> Record {
     let ip = client_ip(peer, headers, &state.trusted_proxies);
-    lookup(&*state.databases, &ip.to_string(), ip)
+    state.lookup(&ip.to_string(), ip).await
 }
 
 /// ipinfo.io's 404 for anything that isn't a route or an IP address.
