@@ -91,7 +91,7 @@ async fn serve(config: Config) -> anyhow::Result<()> {
         }
     }
     let info = databases.info();
-    for source in [&info.location, &info.network] {
+    for source in [&info.location, &info.network].into_iter().flatten() {
         tracing::info!(
             "loaded {} from {} (built {})",
             source.source,

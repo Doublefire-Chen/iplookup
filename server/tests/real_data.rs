@@ -84,3 +84,29 @@ async fn explicit_lookups() {
         assert_eq!(res["asn"]["asn"], asn, "{path}: {res}");
     }
 }
+
+#[tokio::test]
+async fn version_reports_both_real_data_sources() {
+    let Some(app) = real_app() else { return };
+    let res = app.get("/version").send().await;
+    assert_eq!(res.status, axum::http::StatusCode::OK);
+    let data = &res.json()["data"];
+    assert!(
+        data["location"]["source"]
+            .as_str()
+            .unwrap()
+            .contains("City"),
+        "{data}"
+    );
+    assert!(
+        data["network"]["source"]
+            .as_str()
+            .unwrap()
+            .starts_with("ipinfo"),
+        "{data}"
+    );
+    for source in ["location", "network"] {
+        let build = data[source]["build"].as_str().unwrap();
+        assert!(humantime::parse_rfc3339(build).is_ok(), "{build}");
+    }
+}

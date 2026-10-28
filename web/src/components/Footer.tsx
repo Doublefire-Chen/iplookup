@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { README_URL, VERSION_PATH } from "../links";
 
 /** Credits every Data Source (and the map tiles), as their licences require. */
@@ -14,8 +15,8 @@ export function Footer() {
       </p>
       <nav className="footer-links" aria-label="About">
         <a href={README_URL}>API docs</a>
-        {/* A full page load: /version is answered by the server. */}
-        <a href={VERSION_PATH}>Version</a>
+        {/* Client-side: the page fetches /version as JSON. */}
+        <Link to={VERSION_PATH}>Version</Link>
       </nav>
     </footer>
   );

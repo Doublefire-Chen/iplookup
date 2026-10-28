@@ -21,6 +21,7 @@ use tower_http::services::ServeDir;
 
 use crate::config::Hosts;
 use crate::record::Record;
+use crate::version::VersionInfo;
 
 /// The `id` of the embedded data block, read by `web/src/pageData.ts`.
 pub const DATA_ID: &str = "iplookup-data";
@@ -48,6 +49,9 @@ pub struct PageData {
     /// Why the page shows no Record (an unknown path, or the rate limit).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<PageError>,
+    /// The backend version and Data Source state (the `/version` page).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<VersionInfo>,
     /// The configured hostnames (filled in by the app on every page).
     #[serde(skip_serializing_if = "PageHosts::is_empty")]
     pub hosts: PageHosts,
@@ -57,6 +61,13 @@ impl PageData {
     pub fn record(record: Record) -> Self {
         Self {
             record: Some(record),
+            ..Self::default()
+        }
+    }
+
+    pub fn version(version: VersionInfo) -> Self {
+        Self {
+            version: Some(version),
             ..Self::default()
         }
     }

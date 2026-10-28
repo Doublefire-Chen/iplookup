@@ -24,6 +24,7 @@ use crate::page::{Frontend, PageData, wants_page};
 use crate::rate_limit::RateLimiter;
 use crate::record::{Field, Record};
 use crate::reverse_dns::{PtrResolver, ReverseDns};
+use crate::version::VersionInfo;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -88,14 +89,15 @@ impl AppState {
 }
 
 /// Routes are matched in order: reserved names (static routes such as
-/// `/json` and `/assets/…`, which axum always prefers over `/{ip}`, and the
-/// Field names, checked first in [`one_segment`]), then the path parsed as
-/// an IP address, then the "Wrong ip" 404. Every response passes through
+/// `/json`, `/version` and `/assets/…`, which axum always prefers over
+/// `/{ip}`, and the Field names, checked first in [`one_segment`]), then
+/// the path parsed as an IP address, then the "Wrong ip" 404. Every response passes through
 /// [`https_only_pages`].
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/json", get(self_lookup))
+        .route("/version", get(version))
         .route("/assets/{*path}", get(asset))
         .route("/{ip}", get(one_segment))
         .route("/{ip}/{field}", get(two_segments))
@@ -142,6 +144,22 @@ async fn self_lookup(
     headers: HeaderMap,
 ) -> Response {
     json_response(self_record(&state, peer, &headers).await.to_json())
+}
+
+/// `/version`: the backend version and each Data Source's state, as a
+/// page for a browser, as JSON for anything else. Also the health check:
+/// 200 only when both Data Sources are loaded, else 503. Never
+/// rate-limited.
+async fn version(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let info = VersionInfo::new(&state.databases.info());
+    let status = info.status();
+    let mut response = if wants_page(&headers) {
+        state.frontend.page(status, PageData::version(info)).await
+    } else {
+        (status, json_response(info.to_json())).into_response()
+    };
+    vary_accept(&mut response);
+    response
 }
 
 /// A built file of the web pages (never rate-limited).

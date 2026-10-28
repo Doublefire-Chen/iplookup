@@ -6,6 +6,7 @@ mod common;
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use common::upstream::{self, LICENSE_KEY, TOKEN, Upstream};
 use common::{TestApp, mmdb};
@@ -171,8 +172,9 @@ async fn changed_upstream_replaces_the_file_and_new_lookups_see_it() {
         mmdb::network("AS2", "New Net", V2)
     );
     let info = iplookup::databases::DatabaseReader::info(&*databases);
-    assert_eq!((info.location.build, info.network.build), (V2, V2));
-    assert!(info.location.checked.is_some() && info.network.checked.is_some());
+    let (location, network) = (info.location.unwrap(), info.network.unwrap());
+    assert_eq!((location.build, network.build), (V2, V2));
+    assert!(location.checked.is_some() && network.checked.is_some());
 }
 
 /// Runs one failing check of `source` against a server that has v1
@@ -318,4 +320,68 @@ async fn a_source_without_credentials_is_not_downloaded() {
     );
     let err = updater.check(DataSource::Network, None).await.unwrap_err();
     assert!(err.to_string().contains("set [ipinfo] token"), "{err}");
+}
+
+/// `/version` follows the updater: a successful check (even with nothing
+/// new) moves `checked` on, and swapped-in data changes `build`.
+#[tokio::test]
+async fn version_reports_each_check_and_swap() {
+    let upstream = Upstream::start().await;
+    let dir = tempfile::tempdir().unwrap();
+    install_v1(&upstream, dir.path()).await;
+    let databases = Arc::new(MmdbDatabases::open(dir.path()).unwrap());
+    let app = TestApp::with_reader(&Config::parse("", dir.path()).unwrap(), databases.clone());
+    let version = async || app.get("/version").send().await.json()["data"].clone();
+
+    // Freshly opened, with no record of a check: no `checked` yet.
+    let data = version().await;
+    for source in ["location", "network"] {
+        assert_eq!(data[source]["build"], "2026-10-27T00:00:00Z", "{source}");
+        assert!(data[source].get("checked").is_none(), "{source}");
+    }
+    for source in DataSource::ALL {
+        databases.set_checked(source, UNIX_EPOCH + Duration::from_secs(V1));
+    }
+    let data = version().await;
+    assert_eq!(data["location"]["checked"], "2026-10-27T00:00:00Z");
+
+    // Unchanged upstream: `checked` advances, `build` stays.
+    upstream
+        .publish_location(&mmdb::location("Oldtown", V1), 0)
+        .await;
+    upstream
+        .publish_network(&mmdb::network("AS1", "Old Net", V1), "\"v1\"", 0)
+        .await;
+    let updater = updater(&upstream, dir.path());
+    let before = SystemTime::now();
+    for source in DataSource::ALL {
+        updater.check(source, Some(&databases)).await.unwrap();
+    }
+    upstream.reset().await;
+    let data = version().await;
+    for source in ["location", "network"] {
+        assert_eq!(data[source]["build"], "2026-10-27T00:00:00Z", "{source}");
+        let checked = data[source]["checked"].as_str().unwrap();
+        let checked = humantime::parse_rfc3339(checked).unwrap();
+        assert!(
+            checked + Duration::from_secs(1) > before,
+            "{source}: {checked:?}"
+        );
+    }
+
+    // New data swapped in: `build` changes.
+    upstream
+        .publish_location(&mmdb::location("Newtown", V2), 1)
+        .await;
+    upstream
+        .publish_network(&mmdb::network("AS2", "New Net", V2), "\"v2\"", 1)
+        .await;
+    for source in DataSource::ALL {
+        updater.check(source, Some(&databases)).await.unwrap();
+    }
+    upstream.reset().await;
+    let data = version().await;
+    for source in ["location", "network"] {
+        assert_eq!(data[source]["build"], "2026-10-28T00:00:00Z", "{source}");
+    }
 }

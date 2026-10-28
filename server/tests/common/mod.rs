@@ -35,7 +35,8 @@ use http_body_util::BodyExt;
 use iplookup::app::{self, AppState};
 use iplookup::config::Config;
 use iplookup::databases::{
-    Coordinates, DataSourceInfo, DataSourcesInfo, DatabaseReader, IpData, LocationData, NetworkData,
+    Coordinates, DataSource, DataSourceInfo, DataSourcesInfo, DatabaseReader, IpData, LocationData,
+    NetworkData,
 };
 use iplookup::reverse_dns::{BoxFuture, PtrAnswer, PtrResolver};
 use serde_json::Value;
@@ -45,12 +46,18 @@ use tower::ServiceExt;
 /// fakes know nothing about (Quad9's DNS).
 pub const DEFAULT_PEER: &str = "9.9.9.9:50000";
 
+/// Build time of both fake Data Sources: 2026-01-01T00:00:00Z.
+pub const FAKE_BUILD: u64 = 1_767_225_600;
+
 /// A [`DatabaseReader`] that knows only the addresses it is given, and
 /// logs every address it is asked about (see [`FakeDatabases::lookups`]).
+/// Both Data Sources are loaded (built [`FAKE_BUILD`], never checked)
+/// unless [`FakeDatabases::unloaded`] says otherwise.
 #[derive(Default)]
 pub struct FakeDatabases {
     data: HashMap<IpAddr, IpData>,
     lookups: Arc<Mutex<Vec<IpAddr>>>,
+    unloaded: Vec<DataSource>,
 }
 
 impl FakeDatabases {
@@ -68,6 +75,12 @@ impl FakeDatabases {
     pub fn lookups(&self) -> Arc<Mutex<Vec<IpAddr>>> {
         self.lookups.clone()
     }
+
+    /// `source` is reported as not loaded.
+    pub fn unloaded(mut self, source: DataSource) -> Self {
+        self.unloaded.push(source);
+        self
+    }
 }
 
 impl DatabaseReader for FakeDatabases {
@@ -77,15 +90,17 @@ impl DatabaseReader for FakeDatabases {
     }
 
     fn info(&self) -> DataSourcesInfo {
-        let info = |source: &str| DataSourceInfo {
-            source: source.to_owned(),
-            path: format!("/fake/{source}").into(),
-            build: 1_767_225_600,
-            checked: None,
+        let info = |source: DataSource, name: &str| {
+            (!self.unloaded.contains(&source)).then(|| DataSourceInfo {
+                source: name.to_owned(),
+                path: format!("/fake/{name}").into(),
+                build: FAKE_BUILD,
+                checked: None,
+            })
         };
         DataSourcesInfo {
-            location: info("GeoLite2-City"),
-            network: info("ipinfo"),
+            location: info(DataSource::Location, "GeoLite2-City"),
+            network: info(DataSource::Network, "ipinfo_lite"),
         }
     }
 }

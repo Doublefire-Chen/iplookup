@@ -100,6 +100,37 @@ allow = ["192.0.2.0/24", "2001:db8::1"]  # IPs and CIDRs never limited
 Behind a reverse proxy, list it in `trusted_proxies` so clients are told
 apart by `X-Real-IP` rather than all sharing the proxy's bucket.
 
+## Version and health check
+
+`/version` reports the server version and each Data Source's state:
+`source` (the database type in the file), `build` (when the loaded file was
+built) and `checked` (the updater's last successful check, left out until
+there is one). Times are RFC 3339 in UTC.
+
+```console
+$ curl ip.aka.cy/version
+{
+  "version": "0.1.0",
+  "data": {
+    "location": {
+      "source": "GeoLite2-City",
+      "build": "2026-10-27T17:52:02Z",
+      "checked": "2026-10-28T21:41:25Z"
+    },
+    "network": {
+      "source": "ipinfo bundle_location_lite.mmdb",
+      "build": "2026-10-28T08:01:57Z",
+      "checked": "2026-10-28T21:41:26Z"
+    }
+  }
+}
+```
+
+It doubles as the health check for uptime monitoring: `200` when both
+databases are loaded, otherwise `503` (with the same JSON, a Data Source
+that isn't loaded left out). It is never rate-limited. A browser gets a
+page with the same information and the data credits.
+
 Work in progress: the full API documentation comes with later releases.
 
 ## Layout
@@ -144,8 +175,8 @@ cd server && cargo run -- --config iplookup.toml serve   # listens on 127.0.0.1:
 cd web && pnpm dev                                       # http://localhost:5173
 ```
 
-`pnpm dev` serves the pages itself and proxies `/json` and `/{ip}/json` to
-the server; the pages then have no injected Record and fetch it instead. To check the real
+`pnpm dev` serves the pages itself and proxies `/json`, `/{ip}/json` and
+(for the page's fetch, not the page) `/version` to the server; the pages then have no injected Record and fetch it instead. To check the real
 thing, `pnpm build` and point `[frontend] dir` at `../web/dist`.
 
 The real-data tests read both databases from `server/testdata/`, which is

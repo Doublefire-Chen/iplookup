@@ -5,6 +5,7 @@ import { Layout } from "./components/Layout";
 import { HomePage } from "./pages/HomePage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 import { RecordPage } from "./pages/RecordPage";
+import { VersionPage } from "./pages/VersionPage";
 import "./styles.css";
 
 // The server decides which paths are pages (server/src/app.rs); this only
@@ -14,6 +15,8 @@ const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { index: true, element: <HomePage /> },
+      // Reserved names before `:ip`, as on the server.
+      { path: "version", element: <VersionPage /> },
       // Any one segment: the page checks it is an IP address (else 404).
       { path: ":ip", element: <RecordPage /> },
       { path: "*", element: <NotFoundPage /> },

@@ -176,6 +176,22 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* Version page: the health badge, and the Data Source cards reuse .self-cards */
+
+.badge-error {
+  background: transparent;
+  color: var(--error);
+  border: 1px solid var(--error);
+}
+
+.version-note {
+  margin: -0.75rem 0 0;
+}
+
+.self-cards .record-row code {
+  overflow-wrap: anywhere;
+}
+
 /* IPv4 and IPv6 cards, side by side when there's room */
 
 .self-cards {

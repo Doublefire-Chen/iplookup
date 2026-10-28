@@ -17,6 +17,7 @@ pub mod rate_limit;
 pub mod record;
 pub mod reverse_dns;
 pub mod updater;
+pub mod version;
 
 /// The server version.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

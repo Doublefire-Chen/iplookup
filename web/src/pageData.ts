@@ -1,4 +1,5 @@
 import type { IpRecord } from "./record";
+import type { VersionInfo } from "./version";
 
 /**
  * What the server embeds in index.html for the first paint (server/src/page.rs):
@@ -9,6 +10,8 @@ export interface PageData {
   record?: IpRecord;
   /** Why the page has no Record: an unknown path (404) or the rate limit (429). */
   error?: PageError;
+  /** The backend version and Data Source state (the /version page). */
+  version?: VersionInfo;
   /** `hosts.*` from the server's config (on every page, whatever its path). */
   hosts?: PageHosts;
 }

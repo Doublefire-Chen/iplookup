@@ -6,11 +6,16 @@ export default defineConfig({
   server: {
     // `pnpm dev` serves the pages itself and sends data requests to a
     // locally running `iplookup serve`. The pages then have no injected
-    // Record, so they fetch it from /json (home) and /{ip}/json (Record
-    // pages).
+    // Record, so they fetch it from /json (home), /{ip}/json (Record
+    // pages) and /version.
     proxy: {
       "/json": "http://127.0.0.1:18310",
       "^/[^/]+/json$": "http://127.0.0.1:18310",
+      // A page for browsers (served by vite), JSON for the page's fetch.
+      "/version": {
+        target: "http://127.0.0.1:18310",
+        bypass: (req) => (req.headers.accept?.includes("text/html") ? req.url : undefined),
+      },
     },
   },
 });

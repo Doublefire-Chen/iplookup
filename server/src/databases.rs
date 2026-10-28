@@ -66,7 +66,8 @@ pub trait DatabaseReader: Send + Sync + 'static {
     /// Data Source has nothing for the address.
     fn lookup(&self, ip: IpAddr) -> IpData;
 
-    /// Where each Data Source was loaded from and when it was built.
+    /// Where each Data Source was loaded from, when it was built and when
+    /// upstream was last checked for new data.
     fn info(&self) -> DataSourcesInfo;
 }
 
@@ -113,10 +114,12 @@ pub struct NetworkData {
     pub domain: Option<String>,
 }
 
+/// Each Data Source's state; `None` when it isn't loaded (the real
+/// reader always has both, since `serve` won't start without them).
 #[derive(Debug, Clone, PartialEq)]
 pub struct DataSourcesInfo {
-    pub location: DataSourceInfo,
-    pub network: DataSourceInfo,
+    pub location: Option<DataSourceInfo>,
+    pub network: Option<DataSourceInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -257,8 +260,8 @@ impl DatabaseReader for MmdbDatabases {
             }
         };
         DataSourcesInfo {
-            location: info(&self.location),
-            network: info(&self.network),
+            location: Some(info(&self.location)),
+            network: Some(info(&self.network)),
         }
     }
 }
