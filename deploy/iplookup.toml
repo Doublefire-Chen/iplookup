@@ -1,0 +1,16 @@
+# iplookup config for the reference deployment (ip.aka.cy). Every key is
+# optional; relative paths are resolved against this file's directory.
+
+# nginx proxies to this address.
+listen = "127.0.0.1:18310"
+
+# Peers whose X-Real-IP header names the client (IPs or CIDRs). Only list
+# the reverse proxy; anyone else could fake their address. Empty by default.
+trusted_proxies = ["127.0.0.1", "::1"]
+
+# error, warn, info or debug (one line per request). RUST_LOG overrides it.
+log_level = "info"
+
+[data]
+# Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb.
+dir = "/var/lib/iplookup"
