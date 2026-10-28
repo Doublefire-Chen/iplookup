@@ -325,6 +325,57 @@ async fn every_page_carries_the_main_host() {
 }
 
 #[tokio::test]
+async fn pages_carry_the_v4_and_v6_hosts_when_configured() {
+    let (both, _web) = app(
+        "[hosts]\nmain = \"ip.example.com\"\nv4 = \"v4.ip.example.com\"\nv6 = \"v6.ip.example.com\"\n",
+    );
+    let res = both
+        .get("/")
+        .from("8.8.8.8:4000")
+        .header("accept", BROWSER)
+        .send()
+        .await;
+    assert_eq!(
+        res.page_data()["hosts"],
+        json!({"main": "ip.example.com", "v4": "v4.ip.example.com", "v6": "v6.ip.example.com"})
+    );
+
+    // Unset, they are left out (the page then shows a single card).
+    let (plain, _web) = app("");
+    let res = plain.get("/").header("accept", BROWSER).send().await;
+    assert_eq!(res.page_data().get("hosts"), None);
+}
+
+#[tokio::test]
+async fn the_v4_and_v6_hosts_answer_cross_origin_self_lookups() {
+    // The home page on ip.example.com fetches https://v4.…/json and
+    // https://v6.…/json: Self Lookups on another Host, from another Origin.
+    let (app, _web) = app(&format!(
+        "{PROXY}[hosts]\nmain = \"ip.example.com\"\nv4 = \"v4.ip.example.com\"\nv6 = \"v6.ip.example.com\"\n[rate_limit]\nburst = 1\n"
+    ));
+    for (host, client) in [
+        ("v4.ip.example.com", "8.8.8.8"),
+        ("v6.ip.example.com", "2001:4860:4860::8888"),
+    ] {
+        for _ in 0..3 {
+            let res = app
+                .get("/json")
+                .from("127.0.0.1:4000")
+                .header("host", host)
+                .header("x-forwarded-proto", "https")
+                .header("x-real-ip", client)
+                .header("origin", "https://ip.example.com")
+                .header("accept", "*/*")
+                .send()
+                .await;
+            assert_eq!(res.status, StatusCode::OK, "{host}");
+            assert_eq!(res.header("access-control-allow-origin"), Some("*"));
+            assert_eq!(res.json()["ip"], client, "{host}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn a_browser_gets_a_404_page_for_invalid_input_and_unknown_paths() {
     let (app, _web) = app("");
     for uri in [

@@ -42,7 +42,20 @@ Set the public hostname the pages show in their commands:
 ```toml
 [hosts]
 main = "ip.example.com"   # no scheme; unset, pages use the host they came from
+v4 = "v4.ip.example.com"  # optional: an A record only
+v6 = "v6.ip.example.com"  # optional: an AAAA record only
 ```
+
+With both `v4` and `v6` set (each a name for this same server, reachable
+over one protocol only and covered by its HTTPS certificate), the home page
+shows your IPv4 and IPv6 Records side by side. The one the page was loaded
+over is shown at once; the other comes from `https://{v4}/json` or
+`https://{v6}/json` (both answer with `Access-Control-Allow-Origin: *`). A
+protocol whose request fails or takes over 5 seconds shows "No IPv6
+connectivity" (or IPv4). If the page was loaded from a Bogon address (say,
+over a LAN), both are fetched. Without them, the home page shows one Record;
+`curl -4` and `curl -6` force a protocol from a terminal, and with them
+`curl v4.ip.example.com` and `curl v6.ip.example.com` do too.
 
 Plain HTTP is answered directly, so `curl ip.aka.cy` works without
 `https://` or `-L`; only browsers are redirected (`301`) to the same URL on

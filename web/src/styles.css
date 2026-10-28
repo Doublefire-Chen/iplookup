@@ -176,6 +176,29 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* IPv4 and IPv6 cards, side by side when there's room */
+
+.self-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+  gap: 1rem;
+}
+
+.self-cards .record-ip {
+  font-size: 1.3rem;
+}
+
+.self-cards .record-row {
+  grid-template-columns: 1fr;
+  gap: 0.1rem;
+}
+
+.record-none {
+  margin: 0.4rem 0 0.75rem;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
 /* Search box */
 
 .search-row {

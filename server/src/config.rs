@@ -9,6 +9,10 @@
 //! [hosts]
 //! # The public hostname, used in the commands the web pages show.
 //! main = "ip.example.com"
+//! # Optional IPv4-only and IPv6-only hostnames: with both set, the home
+//! # page shows the visitor's Self Lookup over each protocol.
+//! v4 = "v4.ip.example.com"
+//! v6 = "v6.ip.example.com"
 //!
 //! [data]
 //! dir = "data"
@@ -107,6 +111,11 @@ pub struct Hosts {
     /// `curl` commands; `None` means the pages use the one they were
     /// loaded from.
     pub main: Option<String>,
+    /// A hostname with only an A record (IPv4 only). With `v6`, the home
+    /// page fetches `https://{v4}/json` for the visitor's IPv4 Record.
+    pub v4: Option<String>,
+    /// A hostname with only an AAAA record (IPv6 only).
+    pub v6: Option<String>,
 }
 
 /// The token bucket every client gets for Explicit Lookups.
@@ -184,6 +193,8 @@ struct RawConfig {
 #[serde(deny_unknown_fields)]
 struct RawHosts {
     main: Option<String>,
+    v4: Option<String>,
+    v6: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -318,13 +329,12 @@ impl Config {
                 .map(|s| parse_net("rate_limit.allow", s))
                 .collect::<anyhow::Result<_>>()?,
         };
+        let raw_hosts = raw.hosts.unwrap_or_default();
+        let host = |key: &str, h: Option<String>| h.map(|h| parse_host(key, h)).transpose();
         let hosts = Hosts {
-            main: raw
-                .hosts
-                .unwrap_or_default()
-                .main
-                .map(|h| parse_host("hosts.main", h))
-                .transpose()?,
+            main: host("hosts.main", raw_hosts.main)?,
+            v4: host("hosts.v4", raw_hosts.v4)?,
+            v6: host("hosts.v6", raw_hosts.v6)?,
         };
         let frontend_dir = raw.frontend.unwrap_or_default().dir.unwrap_or("web".into());
         Ok(Self {
@@ -430,7 +440,7 @@ mod tests {
     #[test]
     fn every_key_is_read() {
         let c = Config::parse(
-            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n[frontend]\ndir = \"/opt/iplookup/web\"\n[hosts]\nmain = \"ip.example.com\"\n",
+            "listen = \"[::1]:9000\"\ntrusted_proxies = [\"127.0.0.1\", \"10.0.0.0/8\", \"::1\"]\nlog_level = \"debug\"\n[data]\ndir = \"/var/lib/iplookup\"\nupdate_interval = \"6h\"\n[dns]\nresolver = \"127.0.0.1:5353\"\ntimeout = \"2s\"\n[maxmind]\naccount_id = 123456\nlicense_key = \"mm-key\"\nbase_url = \"http://127.0.0.1:1/\"\n[ipinfo]\ntoken = \"ii-token\"\nbase_url = \"http://127.0.0.1:2\"\n[rate_limit]\nburst = 5\nper_second = 0.5\nallow = [\"203.0.113.7\", \"2001:db8::/32\"]\n[frontend]\ndir = \"/opt/iplookup/web\"\n[hosts]\nmain = \"ip.example.com\"\nv4 = \"v4.ip.example.com\"\nv6 = \"[::1]:8443\"\n",
             Path::new("/etc/iplookup"),
         )
         .unwrap();
@@ -454,6 +464,8 @@ mod tests {
         assert_eq!(allow, ["203.0.113.7/32", "2001:db8::/32"]);
         assert_eq!(c.frontend_dir, Path::new("/opt/iplookup/web"));
         assert_eq!(c.hosts.main.as_deref(), Some("ip.example.com"));
+        assert_eq!(c.hosts.v4.as_deref(), Some("v4.ip.example.com"));
+        assert_eq!(c.hosts.v6.as_deref(), Some("[::1]:8443"));
     }
 
     #[test]
@@ -536,6 +548,9 @@ mod tests {
             "[hosts]\nmain = \"ip.example.com/\"",
             "[hosts]\nmain = \"ip example.com\"",
             "[hosts]\nmian = \"ip.example.com\"",
+            "[hosts]\nv4 = \"https://v4.ip.example.com\"",
+            "[hosts]\nv6 = \"v6.ip.example.com/json\"",
+            "[hosts]\nv6 = \"\"",
         ] {
             assert!(Config::parse(bad, Path::new("/")).is_err(), "{bad}");
         }
@@ -550,5 +565,7 @@ mod tests {
         .unwrap();
         assert!(c.listen.ip().is_loopback());
         assert_eq!(c.hosts.main.as_deref(), Some("ip.aka.cy"));
+        assert_eq!(c.hosts.v4.as_deref(), Some("v4.ip.aka.cy"));
+        assert_eq!(c.hosts.v6.as_deref(), Some("v6.ip.aka.cy"));
     }
 }

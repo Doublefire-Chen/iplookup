@@ -19,6 +19,13 @@ log_level = "info"
 # commands (https://{main}/…); unset, they use the hostname they were
 # loaded from.
 main = "ip.aka.cy"
+# Optional hostnames that reach this server over one protocol only: v4
+# with just an A record, v6 with just an AAAA record (both on the same
+# certificate as main). With both set, the home page shows the visitor's
+# IPv4 and IPv6 Records side by side by fetching https://{v4}/json and
+# https://{v6}/json. Unset, it shows the one Record it was loaded over.
+v4 = "v4.ip.aka.cy"
+v6 = "v6.ip.aka.cy"
 
 [data]
 # Holds GeoLite2-City.mmdb and ipinfo_lite.mmdb (missing files are

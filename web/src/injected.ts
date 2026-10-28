@@ -1,6 +1,6 @@
 // The page data of the document as loaded (see pageData.ts).
 
-import { pageDataFor, readPageData, type PageData } from "./pageData";
+import { pageDataFor, readPageData, type PageData, type PageHosts } from "./pageData";
 
 // Read once: they describe the request that loaded this document.
 const loaded = readPageData();
@@ -14,4 +14,9 @@ export function injectedFor(path: string): PageData {
 /** The host for commands: `hosts.main`, else the one this page came from. */
 export function mainHost(): string {
   return loaded.hosts?.main ?? window.location.host;
+}
+
+/** `hosts.*` from the config: the same on every path, so kept across client-side moves. */
+export function configuredHosts(): PageHosts | undefined {
+  return loaded.hosts;
 }

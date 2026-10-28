@@ -9,8 +9,15 @@ export interface PageData {
   record?: IpRecord;
   /** Why the page has no Record: an unknown path (404) or the rate limit (429). */
   error?: PageError;
-  /** `hosts.*` from the server's config. */
-  hosts?: { main?: string };
+  /** `hosts.*` from the server's config (on every page, whatever its path). */
+  hosts?: PageHosts;
+}
+
+/** `hosts.*`: the public hostname, and the IPv4-only and IPv6-only ones. */
+export interface PageHosts {
+  main?: string;
+  v4?: string;
+  v6?: string;
 }
 
 /** The page's HTTP status, with the title and message the JSON error would carry. */

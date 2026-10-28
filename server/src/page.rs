@@ -87,11 +87,17 @@ pub struct PageError {
 pub struct PageHosts {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub main: Option<String>,
+    /// The IPv4-only and IPv6-only hostnames, for the home page's
+    /// cross-host Self Lookups.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v4: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub v6: Option<String>,
 }
 
 impl PageHosts {
     fn is_empty(&self) -> bool {
-        self.main.is_none()
+        self.main.is_none() && self.v4.is_none() && self.v6.is_none()
     }
 }
 
@@ -107,6 +113,8 @@ impl Frontend {
             dir: dir.to_owned(),
             hosts: PageHosts {
                 main: hosts.main.clone(),
+                v4: hosts.v4.clone(),
+                v6: hosts.v6.clone(),
             },
         }
     }
