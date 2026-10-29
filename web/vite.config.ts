@@ -3,6 +3,11 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // Flags stay separate files, fetched only when shown, instead of all
+    // ~270 being inlined into the script.
+    assetsInlineLimit: (file) => (file.includes("/flag-icons/") ? false : undefined),
+  },
   server: {
     // `pnpm dev` serves the pages itself and sends data requests to a
     // locally running `iplookup serve`. The pages then have no injected

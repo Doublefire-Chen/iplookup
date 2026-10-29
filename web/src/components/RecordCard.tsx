@@ -1,16 +1,24 @@
+import { flagUrl } from "../flags";
 import { ipVersion, recordRows } from "../format";
 import type { IpRecord } from "../record";
 
 /** One Record as a card: the address up top, then what is known about it. */
 export function RecordCard({ title, record }: { title: string; record: IpRecord }) {
   const rows = recordRows(record);
+  const flag = flagUrl(record.country);
+  const countryName = record.country_name ?? record.country;
   return (
     <section className="card record-card" aria-label={title}>
       <div className="record-head">
         <h2>{title}</h2>
         <span className="badge">{ipVersion(record.ip)}</span>
       </div>
-      <p className="record-ip">{record.ip}</p>
+      <p className="record-ip">
+        {flag && (
+          <img className="flag" src={flag} alt={countryName} title={countryName} width={40} height={30} />
+        )}
+        <span>{record.ip}</span>
+      </p>
       {record.bogon ? (
         <p className="muted">Not a public address: it has no location or network.</p>
       ) : rows.length === 0 ? (

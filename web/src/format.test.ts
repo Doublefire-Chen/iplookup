@@ -9,6 +9,7 @@ import {
   recordJson,
   recordRows,
 } from "./format";
+import { flagUrl } from "./flags";
 import type { IpRecord } from "./record";
 
 const google: IpRecord = {
@@ -108,6 +109,20 @@ describe("recordRows", () => {
       { label: "Network", value: "AS1 Example" },
     ]);
     expect(recordRows({ ip: "10.0.0.1", bogon: true })).toEqual([]);
+  });
+});
+
+describe("flagUrl", () => {
+  it("finds the flag of a country code in either case", () => {
+    expect(flagUrl("SE")).toMatch(/\/se\.svg$/);
+    expect(flagUrl("se")).toBe(flagUrl("SE"));
+  });
+
+  it("has none for a missing, malformed or unknown code", () => {
+    expect(flagUrl(undefined)).toBeUndefined();
+    expect(flagUrl("")).toBeUndefined();
+    expect(flagUrl("../se")).toBeUndefined();
+    expect(flagUrl("QQ")).toBeUndefined();
   });
 });
 

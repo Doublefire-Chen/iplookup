@@ -176,6 +176,25 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* The country's flag in front of the address (4:3, a bit taller than the text). */
+.record-ip {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.record-ip > span {
+  min-width: 0;
+}
+
+.flag {
+  flex: none;
+  width: auto;
+  height: 1.15em;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 /* Version page: the health badge, and the Data Source cards reuse .self-cards */
 
 .badge-error {
