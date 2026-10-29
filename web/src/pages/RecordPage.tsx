@@ -67,8 +67,10 @@ function RecordDetails({ record }: { record: IpRecord }) {
   const circles = useMemo(() => mapCircles([record]), [record]);
   return (
     <>
-      <RecordCard title="IP address" record={record} />
-      <AccuracyMap circles={circles} />
+      <div className="record-layout">
+        <RecordCard title="IP address" record={record} />
+        <AccuracyMap circles={circles} />
+      </div>
       <section className="card code-card" aria-label="From a terminal">
         <div className="code-head">
           <h2>From a terminal</h2>

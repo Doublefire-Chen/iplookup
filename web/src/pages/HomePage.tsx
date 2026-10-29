@@ -50,10 +50,10 @@ function SingleCard({ injected }: { injected?: IpRecord }) {
 
   const circles = useMemo(() => mapCircles([record]), [record]);
   return record ? (
-    <>
+    <div className="record-layout">
       <RecordCard title="Your IP address" record={record} />
       <AccuracyMap circles={circles} />
-    </>
+    </div>
   ) : (
     <section className="card">
       <p className="muted">{failed ? "Your Record couldn't be loaded." : "Loading…"}</p>

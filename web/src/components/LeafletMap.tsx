@@ -41,11 +41,20 @@ export default function LeafletMap({ circles }: { circles: MapCircle[] }) {
   );
 }
 
-/** Refits the zoom when the circles change (a Self Lookup card finishing late). */
+/**
+ * Refits the zoom when the circles change (a Self Lookup card finishing
+ * late) or the map's box is resized (it stretches to the cards' height).
+ */
 function FitBounds({ bounds }: { bounds: LatLngBounds }) {
   const map = useMap();
   useEffect(() => {
     map.fitBounds(bounds, { padding: PADDING });
+    const observer = new ResizeObserver(() => {
+      map.invalidateSize();
+      map.fitBounds(bounds, { padding: PADDING });
+    });
+    observer.observe(map.getContainer());
+    return () => observer.disconnect();
   }, [map, bounds]);
   return null;
 }

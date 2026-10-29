@@ -58,7 +58,7 @@ code {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.5rem;
+  padding: 1.25rem;
 }
 
 /* Layout */
@@ -67,13 +67,13 @@ code {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  max-width: 44rem;
+  max-width: 76rem;
   margin: 0 auto;
   padding: 0 1rem;
 }
 
 .topbar {
-  padding: 1.25rem 0;
+  padding: 0.9rem 0;
 }
 
 .brand {
@@ -105,8 +105,8 @@ code {
 }
 
 .footer {
-  margin-top: 3rem;
-  padding: 1.25rem 0 2rem;
+  margin-top: 2rem;
+  padding: 1rem 0 1.5rem;
   border-top: 1px solid var(--border);
   color: var(--muted);
   font-size: 0.85rem;
@@ -148,7 +148,7 @@ code {
 }
 
 .record-ip {
-  margin: 0.4rem 0 1.25rem;
+  margin: 0.3rem 0 0.75rem;
   font-family: var(--mono);
   font-size: 1.75rem;
   font-weight: 600;
@@ -163,7 +163,7 @@ code {
   display: grid;
   grid-template-columns: 8rem 1fr;
   gap: 1rem;
-  padding: 0.5rem 0;
+  padding: 0.4rem 0;
   border-top: 1px solid var(--border);
 }
 
@@ -200,13 +200,72 @@ code {
   gap: 1rem;
 }
 
-.self-cards .record-ip {
+.self-cards .record-ip,
+.self-layout .record-ip {
   font-size: 1.3rem;
 }
 
-.self-cards .record-row {
+.self-cards .record-row,
+.self-layout .record-row {
   grid-template-columns: 1fr;
-  gap: 0.1rem;
+  gap: 0;
+  padding: 0.3rem 0;
+}
+
+.self-layout .record-row dt {
+  font-size: 0.8rem;
+}
+
+/*
+ * The home page's two cards and their map, and a Record page's card and
+ * its map: one column on phones; on wider screens the map sits beside the
+ * cards and stretches to their height, so everything fits above the fold.
+ */
+.self-layout,
+.record-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+
+@media (min-width: 40rem) {
+  .self-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .self-layout > .map-card {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 64rem) {
+  .self-layout {
+    grid-template-columns: 1fr 1fr 1.4fr;
+  }
+
+  .self-layout > .map-card {
+    grid-column: auto;
+  }
+
+  /* No map (no Accuracy Radius): the two cards share the width. */
+  .self-layout:not(:has(> .map-card)) {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .record-layout {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .record-layout > :only-child {
+    grid-column: 1 / -1;
+  }
+
+  .self-layout > .map-card .map,
+  .record-layout > .map-card .map {
+    flex: 1;
+    height: auto;
+    min-height: 18rem;
+  }
 }
 
 .record-none {
@@ -325,6 +384,8 @@ code {
 /* The Accuracy Radius map (Leaflet, lazy-loaded with its own CSS) */
 
 .card.map-card {
+  display: flex;
+  flex-direction: column;
   padding: 0;
   overflow: hidden;
 }

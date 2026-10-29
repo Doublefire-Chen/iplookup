@@ -15,8 +15,8 @@ import { RecordCard } from "./RecordCard";
 /**
  * The visitor's IPv4 and IPv6 Self Lookups side by side. Cards with a
  * `fetchUrl` start loading and are fetched in parallel; the rest are
- * already filled. One map below both cards draws each loaded Record's
- * circle (the cards are too narrow for a map each).
+ * already filled. One map next to (or, on narrow screens, below) both
+ * cards draws each loaded Record's circle.
  */
 export function SelfCards({ plans, injected }: { plans: CardPlans; injected?: IpRecord }) {
   const [states, setStates] = useState<Record<Protocol, CardState>>(() => ({
@@ -49,14 +49,12 @@ export function SelfCards({ plans, injected }: { plans: CardPlans; injected?: Ip
   );
 
   return (
-    <>
-      <div className="self-cards">
-        {PROTOCOLS.map((protocol) => (
-          <SelfCard key={protocol} protocol={protocol} state={states[protocol]} />
-        ))}
-      </div>
+    <div className="self-layout">
+      {PROTOCOLS.map((protocol) => (
+        <SelfCard key={protocol} protocol={protocol} state={states[protocol]} />
+      ))}
       <AccuracyMap circles={circles} />
-    </>
+    </div>
   );
 }
 
